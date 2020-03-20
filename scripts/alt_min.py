@@ -3,16 +3,24 @@ import numpy as np
 import random
 import pandas as pd
 import pickle
-# import torch
-# from torch import nn
 
 
-train = pd.read_pickle("../data/ml-1m-split/train.pkl")
-train_shuffled = train.sample(frac=1).reset_index(drop=True)
+train_df = pd.read_pickle("../data/ml-1m-split/train.pkl")
+# train_shuffled = train_df.sample(frac=1).reset_index(drop=True)
 # test = pd.read_pickle("../data/ml-1m-split/test.pkl")
 
 num_users = 6040
 num_items = 3706
+
+train_u = np.zeros((len(train_df), 3))
+train_m = np.zeros((len(train_df), 3))
+
+
+
+
+for (idx, [user, item, _, rating, _]) in train_df.sort_values(by="user", axis=0).reset_index(drop=True):
+    train_u[idx] = np.array([user, item, rating])
+
 
 # avg_item_ratings = np.zeros(num_items)
 # for (item, df) in train.groupby("item"):
@@ -22,12 +30,11 @@ num_items = 3706
 def alt_min(num_factors, lrate):
     U = np.random.uniform(0, 0.6, (num_users, num_factors))
     M = np.random.uniform(0, 0.6, (num_items, num_factors))
-    U_freqs = train.groupby("user").size().values.reshape(-1, 1)
-    M_freqs = train.groupby("item").size().values.reshape(-1, 1)
+    U_freqs = train_df.groupby("user").size().values.reshape(-1, 1)
+    M_freqs = train_df.groupby("item").size().values.reshape(-1, 1)
     rmse = 100
     prev_rmse = 0
     round = 0
-    step_limit = 2.15
 
     while abs(rmse - prev_rmse) > 0.001:
         prev_rmse = rmse
@@ -41,7 +48,7 @@ def alt_min(num_factors, lrate):
             u_prev_rmse = u_rmse
             U_step = np.zeros((num_users, num_factors))
             total_loss = 0
-            for (idx, [user, item, _, rating, _]) in train_shuffled.iterrows():
+            for (idx, [user, item, _, rating, _]) in train_df.iterrows():
                 residual = rating - np.dot(U[user], M[item])
                 total_loss += residual ** 2
                 U_step[user] += residual * M[item]
@@ -52,6 +59,11 @@ def alt_min(num_factors, lrate):
             u_rmse = np.sqrt(total_loss / len(train_shuffled))
             print("USER ITER {}\nStep size: {}\nRMSE: {}\n".format(iter, step_size, u_rmse))
             iter += 1
+            if iter > 1:
+                break
+
+        if iter > 1:
+            break
         
         # Optimize M
         step_size = 100
