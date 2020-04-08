@@ -13,7 +13,6 @@ class MatrixFactorization:
   def __init__(self, train, test, num_items, num_factors, lrate, reg):
     self.num_train_users = len(train.groupby("user").size())
     self.num_test_users = len(test.groupby("user").size())
-    # print("{} train users, {} test users".format(self.num_train_users, self.num_test_users))
     self.num_items = num_items
     self.num_factors = num_factors
     self.lrate = lrate
@@ -71,28 +70,20 @@ class MatrixFactorization:
   def get_u_step(self, user):
     pass
 
-    
+
   def get_v_step(self, item):
     pass
 
 
   def alt_min(self):
-    # U = np.random.standard_normal((num_users, num_factors))
-    # U /= np.linalg.norm(U, axis=1).reshape((-1 ,1))
-    # V = np.random.standard_normal((num_items, num_factors))
-    # V /= np.linalg.norm(V, axis=1).reshape((-1 ,1))
-
     self.U = np.random.uniform(-1, 1, (self.num_train_users, self.num_factors))
     self.V = np.random.uniform(-1, 1, (self.num_items, self.num_factors))
 
-    # train_rmse = self.evaluate(False)
     rmse = self.evaluate()
     prev_rmse = 1000
     rounds = 0
     num_iters = 20
     threshold = -0.001
-
-    # print("Initial train RMSE: {}\nInitial test RMSE: {}\n".format(train_rmse, rmse))
 
     while rmse - prev_rmse < threshold:
       if verbose:
@@ -111,7 +102,6 @@ class MatrixFactorization:
           step = self.get_v_step(item)
           self.V[item] += self.lrate * step
           
-      
       rmse = self.evaluate()
       rounds += 1
 
@@ -209,36 +199,8 @@ class HuberLossGradient(MatrixFactorization):
     umat = self.U[data[:, 0]]
     preds = np.matmul(umat, self.V[item])
     residuals = data[:, 2] - preds
-    dl_dres = np.where(np.linalg.norm(residuals) <= self.delta, residuals, self.delta * np.sign(residuals))
+    dl_dres = np.where(residuals <= self.delta, residuals, self.delta * np.sign(residuals))
     return np.mean(np.multiply(dl_dres.reshape((-1, 1)), umat) - (self.reg * self.V[item]), axis=0)
-
-
-
-def hl_est(data):
-  left = np.repeat(data, len(data), axis=0)
-  right = np.tile(data, (len(data), 1))
-  assert(left.shape == right.shape)
-  assert(len(left) == len(data) ** 2)
-  return np.median((left + right) / 2, axis=0)
-
-
-class HLGradient(MatrixFactorization):
-  def __init__(self, train, test, num_items, num_factors=30, lrate=0.1, reg=0.05):
-    MatrixFactorization.__init__(self, train, test, num_items, num_factors, lrate, reg)
-
-
-  def get_u_step(self, user):
-    data = self.train_u[self.U_start[user] : self.U_start[user + 1]]
-    vmat = self.V[data[:, 1]]
-    preds = np.matmul(vmat, self.U[user])
-    return hl_est(np.multiply((data[:, 2] - preds).reshape((-1, 1)), vmat) - (self.reg * self.U[user]))
-
-    
-  def get_v_step(self, item):
-    data = self.train_v[self.V_start[item] : self.V_start[item + 1]]
-    umat = self.U[data[:, 0]]
-    preds = np.matmul(umat, self.V[item])
-    return hl_est(np.multiply((data[:, 2] - preds).reshape((-1, 1)), umat) - (self.reg * self.V[item]))
 
 
 
@@ -360,25 +322,48 @@ if __name__ == '__main__':
       num_users = len(full.groupby("user").size())
       num_items = len(full.groupby("item").size())
 
+      if len(args) == 3:
+        reg = float(args[2])
+      else:
+        reg = 0.05
+
       if args[1] == "ls":
-        print("Training least squares model")
-        ls = LeastSquares(train, test, num_items)
+        print("Training least squares model with reg = {}".format(reg))
+        ls = LeastSquares(train, test, num_items, reg=reg)
         ls.alt_min()
       elif args[1] == "lad":
-        print("Training least abs dev model")
-        lad = LeastAbsDev(train, test, num_items)
+        print("Training least abs dev model with reg = {}".format(reg))
+        lad = LeastAbsDev(train, test, num_items, reg=reg)
         lad.alt_min()
       elif args[1] == "mgrad":
-        print("Training median gradient model")
-        mgrad = MedianGradient(train, test, num_items)
+        print("Training median gradient model with reg = {}".format(reg))
+        mgrad = MedianGradient(train, test, num_items, reg=reg)
         mgrad.alt_min()
       elif args[1] == "hlgrad":
-        print("Training Huber loss gradient model")
-        hlgrad = HuberLossGradient(train, test, num_items)
+        print("Training Huber loss gradient model with reg = {}".format(reg))
+        hlgrad = HuberLossGradient(train, test, num_items, reg=reg)
         hlgrad.alt_min()
       
-    elif args[1] == "attack":
-      average_attack()
+    elif args[1] == "attack" and len(args) == 3:
+      if args[2] == "ls":
+        print("Attacking least squares model")
+        average_attack(LeastSquares)
+      elif args[2] == "lad":
+        print("Attacking least abs dev model")
+        average_attack(LeastAbsDev)
+      elif args[2] == "mgrad":
+        print("Attacking median gradient model")
+        average_attack(MedianGradient)
+      elif args[2] == "hlgrad":
+        print("Attacking Huber loss gradient model")
+        average_attack(HuberLossGradient)
+      elif args[2] == "all":
+        print("Attacking all models")
+        average_attack(LeastSquares)
+        average_attack(LeastAbsDev)
+        average_attack(MedianGradient)
+        average_attack(HuberLossGradient)
+      
 
     
 
