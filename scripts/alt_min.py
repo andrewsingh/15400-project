@@ -11,7 +11,7 @@ class MatrixFactorization:
   def __init__(self, train, test, num_items):
     self.num_train_users = len(train.groupby("user").size())
     self.num_test_users = len(test.groupby("user").size())
-    print("{} train users, {} test users".format(self.num_train_users, self.num_test_users))
+    # print("{} train users, {} test users".format(self.num_train_users, self.num_test_users))
     self.num_items = num_items
 
     self.train_u = train.sort_values(by="user", axis=0).reset_index(drop=True).to_numpy()
@@ -64,64 +64,69 @@ class MatrixFactorization:
 
 
 
-  def alt_min(self, num_factors=30, lrate=0.1, reg=0.1):
-      # U = np.random.standard_normal((num_users, num_factors))
-      # U /= np.linalg.norm(U, axis=1).reshape((-1 ,1))
-      # V = np.random.standard_normal((num_items, num_factors))
-      # V /= np.linalg.norm(V, axis=1).reshape((-1 ,1))
+  def alt_min(self, num_factors=30, lrate=0.1, reg=0.05):
+    # U = np.random.standard_normal((num_users, num_factors))
+    # U /= np.linalg.norm(U, axis=1).reshape((-1 ,1))
+    # V = np.random.standard_normal((num_items, num_factors))
+    # V /= np.linalg.norm(V, axis=1).reshape((-1 ,1))
 
-      self.U = np.random.uniform(-1, 1, (self.num_train_users, num_factors))
-      self.V = np.random.uniform(-1, 1, (self.num_items, num_factors))
-
-        
-      def get_u_step(user):
-        data = self.train_u[self.U_start[user] : self.U_start[user + 1]]
-        vmat = self.V[data[:, 1]]
-        preds = np.matmul(vmat, self.U[user])
-        return np.mean(np.multiply((data[:, 2] - preds).reshape((-1, 1)), vmat) - (reg * self.U[user]), axis=0)
+    self.U = np.random.uniform(-1, 1, (self.num_train_users, num_factors))
+    self.V = np.random.uniform(-1, 1, (self.num_items, num_factors))
 
       
-      def get_v_step(item):
-        data = self.train_v[self.V_start[item] : self.V_start[item + 1]]
-        umat = self.U[data[:, 0]]
-        preds = np.matmul(umat, self.V[item])
-        return np.mean(np.multiply((data[:, 2] - preds).reshape((-1, 1)), umat) - (reg * self.V[item]), axis=0)
+    def get_u_step(user):
+      data = self.train_u[self.U_start[user] : self.U_start[user + 1]]
+      vmat = self.V[data[:, 1]]
+      preds = np.matmul(vmat, self.U[user])
+      return np.mean(np.multiply((data[:, 2] - preds).reshape((-1, 1)), vmat) - (reg * self.U[user]), axis=0)
+
+    
+    def get_v_step(item):
+      data = self.train_v[self.V_start[item] : self.V_start[item + 1]]
+      umat = self.U[data[:, 0]]
+      preds = np.matmul(umat, self.V[item])
+      return np.mean(np.multiply((data[:, 2] - preds).reshape((-1, 1)), umat) - (reg * self.V[item]), axis=0)
 
 
-      train_rmse = self.evaluate(False)
+    # train_rmse = self.evaluate(False)
+    rmse = self.evaluate()
+    prev_rmse = 1000
+    # rounds = 0
+    num_iters = 20
+    threshold = -0.001
+
+    # print("Initial train RMSE: {}\nInitial test RMSE: {}\n".format(train_rmse, rmse))
+
+    while rmse - prev_rmse < threshold:
+      # t0 = time.time()
+      prev_rmse = rmse
+      
+      # Optmize U
+      for i in range(num_iters):
+        for user in range(self.num_train_users):
+          step = get_u_step(user)
+          self.U[user] += lrate * step
+          
+      # Optimize V
+      for i in range(num_iters):
+        for item in self.V_index:
+          step = get_v_step(item)
+          self.V[item] += lrate * step
+          
+      # train_rmse = self.evaluate(False)
       rmse = self.evaluate()
-      prev_rmse = 1000
-      rounds = 0
-      num_iters = 20
-      threshold = -0.001
 
-      print("Initial train RMSE: {}\nInitial test RMSE: {}\n".format(train_rmse, rmse))
+      # t1 = time.time()
+      # rounds += 1
 
-      while rmse - prev_rmse < threshold:
-          t0 = time.time()
-          prev_rmse = rmse
-          
-          # Optmize U
-          for i in range(num_iters):
-              for user in range(self.num_train_users):
-                step = get_u_step(user)
-                self.U[user] += lrate * step
-              
-          # Optimize V
-          for i in range(num_iters):
-              for item in self.V_index:
-                step = get_v_step(item)
-                self.V[item] += lrate * step
-              
-          train_rmse = self.evaluate(False)
-          rmse = self.evaluate()
+      # if rounds % 5 == 0:
+      #   print("\n==================== ROUND {} ====================\nRMSE: {}\nPrev RMSE: {}\nDiff: {}\nTrain RMSE: {}\nExecution time: {}\n" \
+      #     .format(rounds, round(rmse, 4), round(prev_rmse, 4), round(rmse - prev_rmse, 4), round(train_rmse, 4), round(t1 - t0, 2)))
+      
 
-          t1 = time.time()
-          rounds += 1
-
-          print("\n==================== ROUND {} ====================\nRMSE: {}\nPrev RMSE: {}\nDiff: {}\nTrain RMSE: {}\nExecution time: {}\n" \
-            .format(rounds, round(rmse, 4), round(prev_rmse, 4), round(rmse - prev_rmse, 4), round(train_rmse, 4), round(t1 - t0, 2)))
-          
+    # print("max U: {}\nmin U: {}\navg U: {}\n".format(np.amax(self.U), np.amin(self.U), np.mean(self.U)))
+    # print("max V: {}\nmin V: {}\navg V: {}\n".format(np.amax(self.V), np.amin(self.V), np.mean(self.V)))
+    # print("Final RMSE: {}\n".format(rmse))
 
 
 
@@ -154,33 +159,34 @@ def average_attack():
   mf_clean.alt_min()
   overall_rmse = mf_clean.evaluate()
   results = []
-  #target_items = random.sample(target_items_list, k=5)
+  # target_items = random.sample(target_items_list, k=5)
   target_items = [2582, 2611, 2186, 3643, 2123]
   print("Target items: {}\n".format(target_items))
   
-
   for target_item in target_items:
-    assert(target_item in target_items_list)
+    print("Target item {} freq: {}".format(target_item, len(train.loc[train["item"] == target_item])))
     filler_items = random.sample([x for x in filler_items_list if x != target_item], k=filler_size)
     target_rmse = mf_clean.evaluate_item(target_item)
     
     original_entry = [target_item, 0.0, round(target_rmse, 4), round(overall_rmse, 4)]
     results.append(original_entry)
-    print("Clean result: {}\nAttacked results:".format(original_entry))
+    print(original_entry)
     
-    for profile_prop in [0.01, 0.03, 0.05, 0.10]:
+    for profile_prop in [0.01, 0.05, 0.10]:
       profile_size = int(profile_prop * num_users)
       attack_data = []
       for i in range(profile_size):
         user = i + num_users
-        # boost target item
+        # Boost target item
         attack_data.append([user, target_item, 5]) 
+
         for filler_item in filler_items:
           if np.isnan(item_rating_stds[filler_item]):
             raw_rating = item_rating_avgs[filler_item]
           else:
             raw_rating = np.random.normal(item_rating_avgs[filler_item], item_rating_stds[filler_item])
-          rating = int(round(np.clip(raw_rating, 0, 5)))
+          
+          rating = int(round(np.clip(raw_rating, 1, 5)))
           attack_data.append([user, filler_item, rating])
 
       attack_df = pd.DataFrame(attack_data).rename(columns={0: "user", 1: "item", 2: "rating"})
@@ -196,11 +202,28 @@ def average_attack():
       results.append(entry)
       print(entry)
 
+  with open("../results/average_attack/trial1.pkl") as f:
+    pickle.dump((target_items, results), f)
+
 
 
 
 if __name__ == '__main__':
-  average_attack()
+  args = sys.argv
+  if len(args) >= 2:
+    train = pd.read_pickle("../data/ml-1m-split/train.pkl").drop(["item_id", "timestamp"], axis=1)
+    test = pd.read_pickle("../data/ml-1m-split/test.pkl").drop(["item_id", "timestamp"], axis=1)
+    full = pd.read_pickle("../data/ml-1m-split/full.pkl").drop(["item_id", "timestamp"], axis=1)
+
+    num_users = len(full.groupby("user").size())
+    num_items = len(full.groupby("item").size())
+
+    mf_clean = MatrixFactorization(train, test, num_items)
+    mf_clean.alt_min(reg=float(args[1]))
+    print("Reg: {}".format(args[1]))
+  else:
+    average_attack()
+
     
 
 
