@@ -4,6 +4,9 @@ import random
 import pandas as pd
 import pickle
 import time
+from lenskit.algorithms.als import BiasedMF
+from lenskit.batch import predict
+from lenskit.metrics.predict import rmse
 
 
 verbose = True
@@ -34,14 +37,14 @@ class MatrixFactorization:
 
     V_group_test = test.groupby("item").size()
     V_index_test = V_group_test.index.values
-    V_freqs_test = np.zeros(num_items, dtype="int")
+    self.V_freqs_test = np.zeros(num_items, dtype="int")
     for i in V_index_test:
-      V_freqs_test[i] = V_group_test[i]
+      self.V_freqs_test[i] = V_group_test[i]
       
     self.U_start = np.insert(np.cumsum(U_freqs), 0, 0)
     self.U_start_test = np.insert(np.cumsum(U_freqs_test), 0, 0)
     self.V_start = np.insert(np.cumsum(V_freqs), 0, 0)
-    self.V_start_test = np.insert(np.cumsum(V_freqs_test), 0, 0)
+    self.V_start_test = np.insert(np.cumsum(self.V_freqs_test), 0, 0)
 
 
 
@@ -62,9 +65,24 @@ class MatrixFactorization:
     return np.sqrt(square_error / len(data))
 
 
+  def evaluate_check(self):
+    result = 0
+    for row in self.test_u:
+      (user, item, rating) = (row[0], row[1], row[2])
+      result += (rating - np.dot(self.U[user], self.V[item])) ** 2
+    return np.sqrt(result / len(self.test_u))
+
+
   def evaluate_item(self, item):
     data = self.test_v[self.V_start_test[item] : self.V_start_test[item + 1]]
-    return np.sqrt(np.sum((data[:, 2] - np.matmul(self.U[data[:, 0]], self.V[item])) ** 2) / len(data))
+    assert(len(data) == self.V_freqs_test[item])
+    if len(data) > 0:
+      preds = np.matmul(self.U[data[:, 0]], self.V[item])
+      res = data[:, 2] - preds
+      return np.sqrt(np.sum(res ** 2) / len(data))
+    else:
+      return 0
+
 
 
   def get_u_step(self, user):
@@ -83,7 +101,7 @@ class MatrixFactorization:
     prev_rmse = 1000
     rounds = 0
     num_iters = 20
-    threshold = -0.001
+    threshold = -0.1
 
     while rmse - prev_rmse < threshold:
       if verbose:
@@ -114,13 +132,15 @@ class MatrixFactorization:
     if verbose:
       print("max U: {}\nmin U: {}\navg U: {}\n".format(np.amax(self.U), np.amin(self.U), np.mean(self.U)))
       print("max V: {}\nmin V: {}\navg V: {}\n".format(np.amax(self.V), np.amin(self.V), np.mean(self.V)))
+      print("Regularization: {}".format(self.reg))
       print("Final RMSE: {}\n".format(rmse))
+      
 
 
 
 
 class LeastSquares(MatrixFactorization):
-  def __init__(self, train, test, num_items, num_factors=30, lrate=0.1, reg=0.05):
+  def __init__(self, train, test, num_items, num_factors=30, lrate=0.1, reg=0.1):
     MatrixFactorization.__init__(self, train, test, num_items, num_factors, lrate, reg)
 
 
@@ -140,7 +160,7 @@ class LeastSquares(MatrixFactorization):
 
 
 class LeastAbsDev(MatrixFactorization):
-  def __init__(self, train, test, num_items, num_factors=30, lrate=0.1, reg=0.05):
+  def __init__(self, train, test, num_items, num_factors=30, lrate=0.1, reg=0.1):
     MatrixFactorization.__init__(self, train, test, num_items, num_factors, lrate, reg)
 
 
@@ -160,7 +180,7 @@ class LeastAbsDev(MatrixFactorization):
 
 
 class MedianGradient(MatrixFactorization):
-  def __init__(self, train, test, num_items, num_factors=30, lrate=0.1, reg=0.05):
+  def __init__(self, train, test, num_items, num_factors=30, lrate=0.1, reg=0.1):
     MatrixFactorization.__init__(self, train, test, num_items, num_factors, lrate, reg)
 
 
@@ -180,9 +200,11 @@ class MedianGradient(MatrixFactorization):
 
 
 class HuberLossGradient(MatrixFactorization):
-  def __init__(self, train, test, num_items, num_factors=30, lrate=0.1, reg=0.05, delta=1):
+  def __init__(self, train, test, num_items, num_factors=30, lrate=0.1, reg=0.1, delta=1):
     MatrixFactorization.__init__(self, train, test, num_items, num_factors, lrate, reg)
     self.delta = delta
+    if verbose:
+      print("delta = {}".format(self.delta))
 
   def get_u_step(self, user):
     data = self.train_u[self.U_start[user] : self.U_start[user + 1]]
@@ -211,9 +233,9 @@ def huberGradientEst(grads):
 
 
 class HuberGradient(MatrixFactorization):
-  def __init__(self, train, test, num_items, num_factors=30, lrate=0.1, reg=0.05):
+  def __init__(self, train, test, num_items, num_factors=30, lrate=0.1, reg=0.1):
     MatrixFactorization.__init__(self, train, test, num_items, num_factors, lrate, reg)
-
+    
 
   def get_u_step(self, user):
     data = self.train_u[self.U_start[user] : self.U_start[user + 1]]
@@ -241,6 +263,7 @@ def average_attack(ModelClass):
   num_items = len(full.groupby("item").size())
 
   model_clean = ModelClass(train, test, num_items)
+  algo = BiasedMF(30, bias=False)
   
   item_freqs = full.groupby("item").size().values
   item_freqs_train = train.groupby("item").size()
@@ -257,25 +280,34 @@ def average_attack(ModelClass):
   filler_items_list = list(range(num_items))
   filler_items_list = [x for x in filler_items_list if x in item_freqs_train]
 
+  # target_items = random.sample(target_items_list, k=10)
+  # target_items = [2582, 2611, 2186, 3643, 2123]
+  target_items = [117, 1792, 2837, 3157, 2206, 3038, 1597, 3466, 1988, 3014]
+  print("Target items: {}\n".format(target_items))
+  # print("Average test ratings: {}\n".format(test.groupby("item").mean()["rating"].values[target_items]))
 
   model_clean.alt_min()
   overall_rmse = model_clean.evaluate()
   results = []
-  # target_items = random.sample(target_items_list, k=5)
-  target_items = [2582, 2611, 2186, 3643, 2123]
-  print("Target items: {}\n".format(target_items))
+  algo.fit(train)
+  preds = predict(algo, test)
+  
+  
   
   for target_item in target_items:
     if verbose:
       print("Target item {} freq: {}".format(target_item, len(train.loc[train["item"] == target_item])))
     filler_items = random.sample([x for x in filler_items_list if x != target_item], k=filler_size)
     target_rmse = model_clean.evaluate_item(target_item)
+
+    target_preds = preds.loc[preds["item"] == target_item]
+    algo_target_rmse = rmse(target_preds["prediction"], target_preds["rating"])
     
-    original_entry = [target_item, 0.0, round(target_rmse, 4), round(overall_rmse, 4)]
+    original_entry = [target_item, 0.0, round(target_rmse, 4), round(algo_target_rmse, 4), round(overall_rmse, 4)]
     results.append(original_entry)
     print(original_entry)
     
-    for profile_prop in [0.01, 0.05, 0.10]:
+    for profile_prop in [0.01, 0.03, 0.05, 0.10]:
       profile_size = int(profile_prop * num_users)
       attack_data = []
       for i in range(profile_size):
@@ -298,17 +330,42 @@ def average_attack(ModelClass):
       model_attack.alt_min()
       overall_rmse_attacked = model_attack.evaluate()
       target_rmse_attacked = model_attack.evaluate_item(target_item)
+
+      algo.fit(train_attacked)
+      preds_attacked = predict(algo, test)
+      target_preds_attacked = preds_attacked.loc[preds_attacked["item"] == target_item]
+      algo_target_rmse_attacked = rmse(target_preds_attacked["prediction"], target_preds_attacked["rating"])
       
       attack_prop = profile_size / (profile_size + len(train.loc[train["item"] == target_item]))
       entry = [target_item, round(attack_prop, 4), \
-              round(target_rmse_attacked, 4), round(overall_rmse_attacked, 4)]
+              round(target_rmse_attacked, 4), round(algo_target_rmse_attacked, 4), round(overall_rmse_attacked, 4),]
       results.append(entry)
       print(entry)
+     
 
-  with open("../results/average_attack/trial1/trial1_{}.pkl".format(ModelClass.__name__)) as f:
+  with open("../results/average_attack/trial1/trial1_{}.pkl".format(ModelClass.__name__), "wb+") as f:
     pickle.dump((target_items, results), f)
 
+  # with open("trial1_LeastSquares.pkl", "rb") as f:
+  #   (target_items, results) = pickle.load(f)
 
+
+def sanity_check():
+  print("Running sanity check")
+  train = pd.read_pickle("../data/ml-1m-split/train.pkl").drop(["item_id", "timestamp"], axis=1)
+  test = pd.read_pickle("../data/ml-1m-split/test.pkl").drop(["item_id", "timestamp"], axis=1)
+  full = pd.read_pickle("../data/ml-1m-split/full.pkl").drop(["item_id", "timestamp"], axis=1)
+
+  num_users = len(full.groupby("user").size())
+  num_items = len(full.groupby("item").size())
+  model = LeastSquares(train, test, num_items)
+  model.alt_min()
+  item_rmse = 0
+  for item in range(num_items):
+    item_rmse += (model.evaluate_item(item) ** 2) * model.V_freqs_test[item]
+  item_rmse = np.sqrt(item_rmse / len(test))
+  print("RMSE: {}\nItem RMSE: {}\nCheck RMSE: {}\n".format(model.evaluate(), item_rmse, model.evaluate_check()))
+  return
 
 
 if __name__ == '__main__':
@@ -322,28 +379,34 @@ if __name__ == '__main__':
       num_users = len(full.groupby("user").size())
       num_items = len(full.groupby("item").size())
 
-      if len(args) == 3:
-        reg = float(args[2])
-      else:
-        reg = 0.05
-
       if args[1] == "ls":
-        print("Training least squares model with reg = {}".format(reg))
-        ls = LeastSquares(train, test, num_items, reg=reg)
-        ls.alt_min()
+        print("Training least squares model")
+        ModelClass = LeastSquares
       elif args[1] == "lad":
-        print("Training least abs dev model with reg = {}".format(reg))
-        lad = LeastAbsDev(train, test, num_items, reg=reg)
-        lad.alt_min()
+        print("Training least abs dev model")
+        ModelClass = LeastAbsDev
       elif args[1] == "mgrad":
-        print("Training median gradient model with reg = {}".format(reg))
-        mgrad = MedianGradient(train, test, num_items, reg=reg)
-        mgrad.alt_min()
+        print("Training median gradient model")
+        ModelClass = MedianGradient
       elif args[1] == "hlgrad":
-        print("Training Huber loss gradient model with reg = {}".format(reg))
-        hlgrad = HuberLossGradient(train, test, num_items, reg=reg)
-        hlgrad.alt_min()
-      
+        print("Training Huber loss gradient model")
+        ModelClass = HuberLossGradient
+
+      if len(args) == 4:
+        if args[2] == "reg":
+          model = ModelClass(train, test, num_items, reg=float(args[3]))
+        elif args[2] == "delta":
+          model = ModelClass(train, test, num_items, delta=float(args[3]))
+        else:
+          model = ModelClass(train, test, num_items)
+      elif len(args) == 5 and args[2] == "reg" and args[3] == "delta":
+        model = ModelClass(train, test, num_items, reg=float(args[3]), delta=float(args[4]))
+      else:
+        model = ModelClass(train, test, num_items)
+        
+      model.alt_min()
+    
+
     elif args[1] == "attack" and len(args) == 3:
       if args[2] == "ls":
         print("Attacking least squares model")
@@ -363,6 +426,9 @@ if __name__ == '__main__':
         average_attack(LeastAbsDev)
         average_attack(MedianGradient)
         average_attack(HuberLossGradient)
+    
+  else:
+    sanity_check()
       
 
     
