@@ -87,7 +87,7 @@ class MatrixFactorization:
     rmse = self.evaluate()
     prev_rmse = 1000
     rounds = 0
-    num_iters = 20 # change back to 20
+    num_iters = 20
     threshold = -0.001
 
     while rmse - prev_rmse < threshold:
@@ -100,14 +100,14 @@ class MatrixFactorization:
         for user in range(self.num_train_users):
           step = self.get_u_step(user)
           self.U[user] += self.lrate * step
-        # print("User iter {}".format(i))
+        print("User iter {}".format(i))
           
       # Optimize V
       for i in range(num_iters):
         for item in self.V_index:
           step = self.get_v_step(item)
           self.V[item] += self.lrate * step
-        # print("Item iter {}".format(i))
+        print("Item iter {}".format(i))
           
       rmse = self.evaluate()
       rounds += 1
@@ -201,14 +201,21 @@ def huberGradientEst(grads, corruption):
   grads_mean = np.mean(grads, axis=0)
   grads_c = grads - grads_mean
   (n, k) = grads_c.shape
-  (u, s, vh) = np.linalg.svd(grads_c)
+  try:
+    (u, s, vh) = np.linalg.svd(grads_c)
+  except np.linalg.LinAlgError:
+    return grads_mean
   v = vh[:, 1].reshape((-1, 1))
   pv = np.matmul(grads, v)
   pv_std = np.std(pv)
   if pv_std > 0:
     # robust mean
     pv_z = np.abs(pv - np.mean(pv)) / pv_std
-    muv = np.mean(pv[np.argsort(pv_z)][:int(corruption * n)]) 
+    truncated = pv[np.argsort(pv_z)][:int(corruption * n)]
+    if len(truncated) > 0:
+      muv = np.mean(truncated)
+    else:
+      muv = np.mean(pv)
   else:
     muv = np.mean(pv)
   w = vh[:, 1:]
