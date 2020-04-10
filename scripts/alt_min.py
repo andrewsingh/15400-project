@@ -10,6 +10,7 @@ from lenskit.metrics.predict import rmse
 
 
 verbose = True
+trial_num = 2
 
 
 class MatrixFactorization:
@@ -37,14 +38,14 @@ class MatrixFactorization:
 
     V_group_test = test.groupby("item").size()
     V_index_test = V_group_test.index.values
-    self.V_freqs_test = np.zeros(num_items, dtype="int")
+    V_freqs_test = np.zeros(num_items, dtype="int")
     for i in V_index_test:
-      self.V_freqs_test[i] = V_group_test[i]
+      V_freqs_test[i] = V_group_test[i]
       
     self.U_start = np.insert(np.cumsum(U_freqs), 0, 0)
     self.U_start_test = np.insert(np.cumsum(U_freqs_test), 0, 0)
     self.V_start = np.insert(np.cumsum(V_freqs), 0, 0)
-    self.V_start_test = np.insert(np.cumsum(self.V_freqs_test), 0, 0)
+    self.V_start_test = np.insert(np.cumsum(V_freqs_test), 0, 0)
 
 
 
@@ -65,24 +66,9 @@ class MatrixFactorization:
     return np.sqrt(square_error / len(data))
 
 
-  def evaluate_check(self):
-    result = 0
-    for row in self.test_u:
-      (user, item, rating) = (row[0], row[1], row[2])
-      result += (rating - np.dot(self.U[user], self.V[item])) ** 2
-    return np.sqrt(result / len(self.test_u))
-
-
   def evaluate_item(self, item):
     data = self.test_v[self.V_start_test[item] : self.V_start_test[item + 1]]
-    assert(len(data) == self.V_freqs_test[item])
-    if len(data) > 0:
-      preds = np.matmul(self.U[data[:, 0]], self.V[item])
-      res = data[:, 2] - preds
-      return np.sqrt(np.sum(res ** 2) / len(data))
-    else:
-      return 0
-
+    return np.sqrt(np.sum((data[:, 2] - np.matmul(self.U[data[:, 0]], self.V[item])) ** 2) / len(data))
 
 
   def get_u_step(self, user):
@@ -94,14 +80,15 @@ class MatrixFactorization:
 
 
   def alt_min(self):
+    np.random.seed(0)
     self.U = np.random.uniform(-1, 1, (self.num_train_users, self.num_factors))
     self.V = np.random.uniform(-1, 1, (self.num_items, self.num_factors))
 
     rmse = self.evaluate()
     prev_rmse = 1000
     rounds = 0
-    num_iters = 20
-    threshold = -0.1
+    num_iters = 10 # change back to 20
+    threshold = -0.001
 
     while rmse - prev_rmse < threshold:
       if verbose:
@@ -113,12 +100,14 @@ class MatrixFactorization:
         for user in range(self.num_train_users):
           step = self.get_u_step(user)
           self.U[user] += self.lrate * step
+        print("User iter {}".format(i))
           
       # Optimize V
       for i in range(num_iters):
         for item in self.V_index:
           step = self.get_v_step(item)
           self.V[item] += self.lrate * step
+        print("Item iter {}".format(i))
           
       rmse = self.evaluate()
       rounds += 1
@@ -179,27 +168,8 @@ class LeastAbsDev(MatrixFactorization):
 
 
 
-class MedianGradient(MatrixFactorization):
-  def __init__(self, train, test, num_items, num_factors=30, lrate=0.1, reg=0.1):
-    MatrixFactorization.__init__(self, train, test, num_items, num_factors, lrate, reg)
 
-
-  def get_u_step(self, user):
-    data = self.train_u[self.U_start[user] : self.U_start[user + 1]]
-    vmat = self.V[data[:, 1]]
-    preds = np.matmul(vmat, self.U[user])
-    return np.median(np.multiply((data[:, 2] - preds).reshape((-1, 1)), vmat) - (self.reg * self.U[user]), axis=0)
-
-    
-  def get_v_step(self, item):
-    data = self.train_v[self.V_start[item] : self.V_start[item + 1]]
-    umat = self.U[data[:, 0]]
-    preds = np.matmul(umat, self.V[item])
-    return np.median(np.multiply((data[:, 2] - preds).reshape((-1, 1)), umat) - (self.reg * self.V[item]), axis=0)
-
-
-
-class HuberLossGradient(MatrixFactorization):
+class HuberLoss(MatrixFactorization):
   def __init__(self, train, test, num_items, num_factors=30, lrate=0.1, reg=0.1, delta=1):
     MatrixFactorization.__init__(self, train, test, num_items, num_factors, lrate, reg)
     self.delta = delta
@@ -228,8 +198,28 @@ class HuberLossGradient(MatrixFactorization):
 
 
 def huberGradientEst(grads):
-  grad_cov = np.cov(grads)
-  (u, s, vh) = np.linalg.svd(grad_cov)
+  # grad_cov = np.cov(grads)
+  # (u, s, vh) = np.linalg.svd(grad_cov)
+  grads_mean = np.mean(grads, axis=0)
+  # print("grads_mean shape: {}".format(grads_mean.shape))
+  grads_c = grads - grads_mean
+  # assert(grads.shape == grads_c.shape)
+  (n, k) = grads_c.shape
+  (u, s, vh) = np.linalg.svd(grads_c)
+  # assert(vh.shape == (k, k))
+  v = vh[:, 1].reshape((-1, 1))
+  pv = np.matmul(grads, v)
+  muv = np.mean(pv) # make this robust
+  w = vh[:, 1:]
+  # print("w shape: {}".format(w.shape))
+  pw = np.matmul(grads, w)
+  muw = np.mean(pw, axis=0)
+  wv = np.append(w.T, v.T, axis=0)
+  # assert(wv.shape == (k, k))
+  wvi = np.linalg.pinv(wv)
+  muw_muv = np.append(muw, muv)
+  return np.matmul(wvi, muw_muv).reshape(-1)
+
 
 
 class HuberGradient(MatrixFactorization):
@@ -241,14 +231,43 @@ class HuberGradient(MatrixFactorization):
     data = self.train_u[self.U_start[user] : self.U_start[user + 1]]
     vmat = self.V[data[:, 1]]
     preds = np.matmul(vmat, self.U[user])
-    return huberGradientEst(np.multiply((data[:, 2] - preds).reshape((-1, 1)), vmat) - (self.reg * self.U[user]))
+    return huberGradientEst(np.multiply((data[:, 2] - preds).reshape((-1, 1)), vmat)) - (self.reg * self.U[user])
 
     
   def get_v_step(self, item):
     data = self.train_v[self.V_start[item] : self.V_start[item + 1]]
     umat = self.U[data[:, 0]]
     preds = np.matmul(umat, self.V[item])
-    return huberGradientEst(np.multiply((data[:, 2] - preds).reshape((-1, 1)), umat) - (self.reg * self.V[item]))
+    return huberGradientEst(np.multiply((data[:, 2] - preds).reshape((-1, 1)), umat)) - (self.reg * self.V[item])
+
+
+
+
+class WeightedMean(MatrixFactorization):
+  def __init__(self, train, test, num_items, num_factors=30, lrate=0.1, reg=0.1):
+    MatrixFactorization.__init__(self, train, test, num_items, num_factors, lrate, reg)
+
+
+  def get_u_step(self, user):
+    data = self.train_u[self.U_start[user] : self.U_start[user + 1]]
+    vmat = self.V[data[:, 1]]
+    preds = np.matmul(vmat, self.U[user])
+    residuals = data[:, 2] - preds
+    weights = np.std(residuals) / (residuals - np.mean(residuals)) # inverse z-score
+    weights_scaled = weights / np.sum(weights)
+    grads = np.multiply((data[:, 2] - preds).reshape((-1, 1)), vmat) - (self.reg * self.U[user])
+    return np.mean(grads, axis=0, weights=weights_scaled)
+
+    
+  def get_v_step(self, item):
+    data = self.train_v[self.V_start[item] : self.V_start[item + 1]]
+    umat = self.U[data[:, 0]]
+    preds = np.matmul(umat, self.V[item])
+    residuals = data[:, 2] - preds
+    weights = np.std(residuals) / (residuals - np.mean(residuals)) # inverse z-score
+    weights_scaled = weights / np.sum(weights)
+    grads = np.multiply((data[:, 2] - preds).reshape((-1, 1)), umat) - (self.reg * self.V[item])
+    return np.mean(grads, axis=0, weights=weights_scaled)
 
 
 
@@ -262,58 +281,51 @@ def average_attack(ModelClass):
   num_users = len(full.groupby("user").size())
   num_items = len(full.groupby("item").size())
 
-  model_clean = ModelClass(train, test, num_items)
-  algo = BiasedMF(30, bias=False)
-  
   item_freqs = full.groupby("item").size().values
   item_freqs_train = train.groupby("item").size()
   item_rating_avgs = full.groupby("item").mean()["rating"].values
   item_rating_stds = full.groupby("item").std()["rating"].values
 
-  target_items_list = []
-  for i in range(num_items):
-    if i in item_freqs_train and item_freqs[i] <= (0.05 * num_users) and item_freqs[i] >= (0.02 * num_users) and item_rating_avgs[i] < 3:
-      target_items_list.append(i)
+  # target_items_list = []
+  # for i in range(num_items):
+  #   if i in item_freqs_train and item_freqs[i] <= (0.05 * num_users) and item_freqs[i] >= (0.03 * num_users) and item_rating_avgs[i] >= 3:
+  #     target_items_list.append(i)
+
+  # target_items = random.sample(target_items_list, k=10)
+
+  # target_items = [117, 1792, 2837, 3157, 2206, 3038, 1597, 3466, 1988, 3014]
+  target_items = [371, 1100, 2531, 40, 2818, 1314, 1747, 3081, 2984, 871]
+
+  print("Target items: {}\n".format(target_items))
 
   filler_prop = 0.05
   filler_size = int(filler_prop * num_items)
-  filler_items_list = list(range(num_items))
-  filler_items_list = [x for x in filler_items_list if x in item_freqs_train]
+  filler_items_list = [x for x in list(range(num_items)) if x in item_freqs_train and x not in target_items]
 
-  # target_items = random.sample(target_items_list, k=10)
-  # target_items = [2582, 2611, 2186, 3643, 2123]
-  target_items = [117, 1792, 2837, 3157, 2206, 3038, 1597, 3466, 1988, 3014]
-  print("Target items: {}\n".format(target_items))
-  # print("Average test ratings: {}\n".format(test.groupby("item").mean()["rating"].values[target_items]))
-
+  model_clean = ModelClass(train, test, num_items)
   model_clean.alt_min()
   overall_rmse = model_clean.evaluate()
   results = []
-  algo.fit(train)
-  preds = predict(algo, test)
-  
-  
   
   for target_item in target_items:
     if verbose:
       print("Target item {} freq: {}".format(target_item, len(train.loc[train["item"] == target_item])))
-    filler_items = random.sample([x for x in filler_items_list if x != target_item], k=filler_size)
+
+    np.random.seed(0)
+    filler_items = random.sample(filler_items_list, k=filler_size)
     target_rmse = model_clean.evaluate_item(target_item)
 
-    target_preds = preds.loc[preds["item"] == target_item]
-    algo_target_rmse = rmse(target_preds["prediction"], target_preds["rating"])
-    
-    original_entry = [target_item, 0.0, round(target_rmse, 4), round(algo_target_rmse, 4), round(overall_rmse, 4)]
+    original_entry = [target_item, 0.0, 0.0, round(target_rmse, 4), round(overall_rmse, 4)]
     results.append(original_entry)
     print(original_entry)
     
-    for profile_prop in [0.01, 0.03, 0.05, 0.10]:
+    for profile_prop in [0.01, 0.03, 0.05, 0.10, 0.25]:
       profile_size = int(profile_prop * num_users)
       attack_data = []
       for i in range(profile_size):
         user = i + num_users
-        # Boost target item
-        attack_data.append([user, target_item, 5]) 
+        # Drop target item
+        attack_data.append([user, target_item, 1])
 
         for filler_item in filler_items:
           if np.isnan(item_rating_stds[filler_item]):
@@ -330,42 +342,20 @@ def average_attack(ModelClass):
       model_attack.alt_min()
       overall_rmse_attacked = model_attack.evaluate()
       target_rmse_attacked = model_attack.evaluate_item(target_item)
-
-      algo.fit(train_attacked)
-      preds_attacked = predict(algo, test)
-      target_preds_attacked = preds_attacked.loc[preds_attacked["item"] == target_item]
-      algo_target_rmse_attacked = rmse(target_preds_attacked["prediction"], target_preds_attacked["rating"])
       
       attack_prop = profile_size / (profile_size + len(train.loc[train["item"] == target_item]))
-      entry = [target_item, round(attack_prop, 4), \
-              round(target_rmse_attacked, 4), round(algo_target_rmse_attacked, 4), round(overall_rmse_attacked, 4),]
+      entry = [target_item, profile_prop, round(attack_prop, 4), \
+              round(target_rmse_attacked, 4), round(overall_rmse_attacked, 4)]
       results.append(entry)
       print(entry)
      
 
-  with open("../results/average_attack/trial1/trial1_{}.pkl".format(ModelClass.__name__), "wb+") as f:
+  with open("../results/average_attack/trial{}/trial{}_{}.pkl".format(trial_num, trial_num, ModelClass.__name__), "wb+") as f:
     pickle.dump((target_items, results), f)
 
   # with open("trial1_LeastSquares.pkl", "rb") as f:
   #   (target_items, results) = pickle.load(f)
 
-
-def sanity_check():
-  print("Running sanity check")
-  train = pd.read_pickle("../data/ml-1m-split/train.pkl").drop(["item_id", "timestamp"], axis=1)
-  test = pd.read_pickle("../data/ml-1m-split/test.pkl").drop(["item_id", "timestamp"], axis=1)
-  full = pd.read_pickle("../data/ml-1m-split/full.pkl").drop(["item_id", "timestamp"], axis=1)
-
-  num_users = len(full.groupby("user").size())
-  num_items = len(full.groupby("item").size())
-  model = LeastSquares(train, test, num_items)
-  model.alt_min()
-  item_rmse = 0
-  for item in range(num_items):
-    item_rmse += (model.evaluate_item(item) ** 2) * model.V_freqs_test[item]
-  item_rmse = np.sqrt(item_rmse / len(test))
-  print("RMSE: {}\nItem RMSE: {}\nCheck RMSE: {}\n".format(model.evaluate(), item_rmse, model.evaluate_check()))
-  return
 
 
 if __name__ == '__main__':
@@ -385,12 +375,15 @@ if __name__ == '__main__':
       elif args[1] == "lad":
         print("Training least abs dev model")
         ModelClass = LeastAbsDev
-      elif args[1] == "mgrad":
-        print("Training median gradient model")
-        ModelClass = MedianGradient
-      elif args[1] == "hlgrad":
-        print("Training Huber loss gradient model")
-        ModelClass = HuberLossGradient
+      elif args[1] == "hl":
+        print("Training Huber loss model")
+        ModelClass = HuberLoss
+      elif args[1] == "hg":
+        print("Training Huber gradient model")
+        ModelClass = HuberGradient
+      elif args[1] == "wm":
+        print("Training weighted mean model")
+        ModelClass = WeightedMean
 
       if len(args) == 4:
         if args[2] == "reg":
@@ -414,21 +407,14 @@ if __name__ == '__main__':
       elif args[2] == "lad":
         print("Attacking least abs dev model")
         average_attack(LeastAbsDev)
-      elif args[2] == "mgrad":
-        print("Attacking median gradient model")
-        average_attack(MedianGradient)
-      elif args[2] == "hlgrad":
-        print("Attacking Huber loss gradient model")
-        average_attack(HuberLossGradient)
+      elif args[2] == "hl":
+        print("Attacking Huber loss model")
+        average_attack(HuberLoss)
       elif args[2] == "all":
         print("Attacking all models")
         average_attack(LeastSquares)
         average_attack(LeastAbsDev)
-        average_attack(MedianGradient)
-        average_attack(HuberLossGradient)
-    
-  else:
-    sanity_check()
+        average_attack(HuberLoss)
       
 
     
