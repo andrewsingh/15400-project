@@ -253,35 +253,40 @@ class WeightedMean(MatrixFactorization):
     vmat = self.V[data[:, 1]]
     preds = np.matmul(vmat, self.U[user])
     residuals = data[:, 2] - preds
-    weights = np.std(residuals) / (residuals - np.mean(residuals)) # inverse z-score
-    weights_scaled = weights / np.sum(weights)
+    res_norm = (residuals - np.mean(residuals)) / np.std(residuals)
+    densities = np.exp(-(res_norm ** 2) / 2) / np.sqrt(2 * np.pi)
+    weights = densities / np.sum(densities)
     grads = np.multiply((data[:, 2] - preds).reshape((-1, 1)), vmat) - (self.reg * self.U[user])
-    return np.average(grads, axis=0, weights=weights_scaled)
+    return np.average(grads, axis=0, weights=weights)
 
     
   def get_v_step(self, item):
-    assert(True not in np.isnan(self.V[item]))
     data = self.train_v[self.V_start[item] : self.V_start[item + 1]]
-    if len(data) == 0:
-      return 0
+    umat = self.U[data[:, 0]]
+    preds = np.matmul(umat, self.V[item])
+    residuals = data[:, 2] - preds
+    grads = np.multiply(residuals.reshape((-1, 1)), umat) - (self.reg * self.V[item])
+    res_std = np.std(residuals)
+    if res_std > 0:
+      res_norm = (residuals - np.mean(residuals)) / res_std
+      densities = np.exp(-(res_norm ** 2) / 2) / np.sqrt(2 * np.pi)
+      weights = densities / np.sum(densities)
+      return np.average(grads, axis=0, weights=weights)
     else:
-      umat = self.U[data[:, 0]]
-      preds = np.matmul(umat, self.V[item])
-      residuals = data[:, 2] - preds
-      res_std = np.std(residuals)
-      if np.isnan(res_std):
-        print("{}\n".format(residuals))
-        print("{}\n".format(data[:, 2]))
-        print("{}\n".format(preds))
-        print("{}\n".format(umat))
-        print("{}\n".format(self.V[item]))
-        print("\n\n")
-        return 0
-      else:
-        weights = res_std / np.abs(residuals - np.mean(residuals)) # inverse z-score
-        weights_scaled = weights / np.sum(weights)
-        grads = np.multiply((data[:, 2] - preds).reshape((-1, 1)), umat) - (self.reg * self.V[item])
-        return np.average(grads, axis=0, weights=weights_scaled)
+      return np.mean(grads, axis=0)
+
+      # if np.isnan(res_std):
+      #   print("{}\n".format(residuals))
+      #   print("{}\n".format(data[:, 2]))
+      #   print("{}\n".format(preds))
+      #   print("{}\n".format(umat))
+      #   print("{}\n".format(self.V[item]))
+      #   print("\n\n")
+      #   return 0
+      # else:
+      #   weights = res_std / np.abs(residuals - np.mean(residuals)) # inverse z-score
+      #   weights_scaled = weights / np.sum(weights)
+        
 
 
 
