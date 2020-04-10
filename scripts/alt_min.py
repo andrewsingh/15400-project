@@ -256,18 +256,32 @@ class WeightedMean(MatrixFactorization):
     weights = np.std(residuals) / (residuals - np.mean(residuals)) # inverse z-score
     weights_scaled = weights / np.sum(weights)
     grads = np.multiply((data[:, 2] - preds).reshape((-1, 1)), vmat) - (self.reg * self.U[user])
-    return np.mean(grads, axis=0, weights=weights_scaled)
+    return np.average(grads, axis=0, weights=weights_scaled)
 
     
   def get_v_step(self, item):
+    assert(True not in np.isnan(self.V[item]))
     data = self.train_v[self.V_start[item] : self.V_start[item + 1]]
-    umat = self.U[data[:, 0]]
-    preds = np.matmul(umat, self.V[item])
-    residuals = data[:, 2] - preds
-    weights = np.std(residuals) / (residuals - np.mean(residuals)) # inverse z-score
-    weights_scaled = weights / np.sum(weights)
-    grads = np.multiply((data[:, 2] - preds).reshape((-1, 1)), umat) - (self.reg * self.V[item])
-    return np.mean(grads, axis=0, weights=weights_scaled)
+    if len(data) == 0:
+      return 0
+    else:
+      umat = self.U[data[:, 0]]
+      preds = np.matmul(umat, self.V[item])
+      residuals = data[:, 2] - preds
+      res_std = np.std(residuals)
+      if np.isnan(res_std):
+        print("{}\n".format(residuals))
+        print("{}\n".format(data[:, 2]))
+        print("{}\n".format(preds))
+        print("{}\n".format(umat))
+        print("{}\n".format(self.V[item]))
+        print("\n\n")
+        return 0
+      else:
+        weights = res_std / np.abs(residuals - np.mean(residuals)) # inverse z-score
+        weights_scaled = weights / np.sum(weights)
+        grads = np.multiply((data[:, 2] - preds).reshape((-1, 1)), umat) - (self.reg * self.V[item])
+        return np.average(grads, axis=0, weights=weights_scaled)
 
 
 
