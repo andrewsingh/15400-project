@@ -9,7 +9,7 @@ from lenskit.batch import predict
 from lenskit.metrics.predict import rmse
 
 
-verbose = True
+verbose = False
 trial_num = 2
 
 
@@ -87,7 +87,7 @@ class MatrixFactorization:
     rmse = self.evaluate()
     prev_rmse = 1000
     rounds = 0
-    num_iters = 10 # change back to 20
+    num_iters = 20 # change back to 20
     threshold = -0.001
 
     while rmse - prev_rmse < threshold:
@@ -100,14 +100,14 @@ class MatrixFactorization:
         for user in range(self.num_train_users):
           step = self.get_u_step(user)
           self.U[user] += self.lrate * step
-        print("User iter {}".format(i))
+        # print("User iter {}".format(i))
           
       # Optimize V
       for i in range(num_iters):
         for item in self.V_index:
           step = self.get_v_step(item)
           self.V[item] += self.lrate * step
-        print("Item iter {}".format(i))
+        # print("Item iter {}".format(i))
           
       rmse = self.evaluate()
       rounds += 1
@@ -197,25 +197,24 @@ class HuberLoss(MatrixFactorization):
 
 
 
-def huberGradientEst(grads):
-  # grad_cov = np.cov(grads)
-  # (u, s, vh) = np.linalg.svd(grad_cov)
+def huberGradientEst(grads, corruption):
   grads_mean = np.mean(grads, axis=0)
-  # print("grads_mean shape: {}".format(grads_mean.shape))
   grads_c = grads - grads_mean
-  # assert(grads.shape == grads_c.shape)
   (n, k) = grads_c.shape
   (u, s, vh) = np.linalg.svd(grads_c)
-  # assert(vh.shape == (k, k))
   v = vh[:, 1].reshape((-1, 1))
   pv = np.matmul(grads, v)
-  muv = np.mean(pv) # make this robust
+  pv_std = np.std(pv)
+  if pv_std > 0:
+    # robust mean
+    pv_z = np.abs(pv - np.mean(pv)) / pv_std
+    muv = np.mean(pv[np.argsort(pv_z)][:int(corruption * n)]) 
+  else:
+    muv = np.mean(pv)
   w = vh[:, 1:]
-  # print("w shape: {}".format(w.shape))
   pw = np.matmul(grads, w)
   muw = np.mean(pw, axis=0)
   wv = np.append(w.T, v.T, axis=0)
-  # assert(wv.shape == (k, k))
   wvi = np.linalg.pinv(wv)
   muw_muv = np.append(muw, muv)
   return np.matmul(wvi, muw_muv).reshape(-1)
@@ -223,22 +222,23 @@ def huberGradientEst(grads):
 
 
 class HuberGradient(MatrixFactorization):
-  def __init__(self, train, test, num_items, num_factors=30, lrate=0.1, reg=0.1):
+  def __init__(self, train, test, num_items, num_factors=30, lrate=0.1, reg=0.1, corruption=0.1):
     MatrixFactorization.__init__(self, train, test, num_items, num_factors, lrate, reg)
+    self.corruption = corruption
     
 
   def get_u_step(self, user):
     data = self.train_u[self.U_start[user] : self.U_start[user + 1]]
     vmat = self.V[data[:, 1]]
     preds = np.matmul(vmat, self.U[user])
-    return huberGradientEst(np.multiply((data[:, 2] - preds).reshape((-1, 1)), vmat)) - (self.reg * self.U[user])
+    return huberGradientEst(np.multiply((data[:, 2] - preds).reshape((-1, 1)), vmat), self.corruption) - (self.reg * self.U[user])
 
     
   def get_v_step(self, item):
     data = self.train_v[self.V_start[item] : self.V_start[item + 1]]
     umat = self.U[data[:, 0]]
     preds = np.matmul(umat, self.V[item])
-    return huberGradientEst(np.multiply((data[:, 2] - preds).reshape((-1, 1)), umat)) - (self.reg * self.V[item])
+    return huberGradientEst(np.multiply((data[:, 2] - preds).reshape((-1, 1)), umat), self.corruption) - (self.reg * self.V[item])
 
 
 
@@ -275,21 +275,8 @@ class WeightedMean(MatrixFactorization):
     else:
       return np.mean(grads, axis=0)
 
-      # if np.isnan(res_std):
-      #   print("{}\n".format(residuals))
-      #   print("{}\n".format(data[:, 2]))
-      #   print("{}\n".format(preds))
-      #   print("{}\n".format(umat))
-      #   print("{}\n".format(self.V[item]))
-      #   print("\n\n")
-      #   return 0
-      # else:
-      #   weights = res_std / np.abs(residuals - np.mean(residuals)) # inverse z-score
-      #   weights_scaled = weights / np.sum(weights)
+
         
-
-
-
 
 
 def average_attack(ModelClass):
@@ -381,6 +368,7 @@ if __name__ == '__main__':
   args = sys.argv
   if len(args) >= 2:
     if args[1] != "attack":
+      verbose = True
       train = pd.read_pickle("../data/ml-1m-split/train.pkl").drop(["item_id", "timestamp"], axis=1)
       test = pd.read_pickle("../data/ml-1m-split/test.pkl").drop(["item_id", "timestamp"], axis=1)
       full = pd.read_pickle("../data/ml-1m-split/full.pkl").drop(["item_id", "timestamp"], axis=1)
@@ -407,12 +395,15 @@ if __name__ == '__main__':
       if len(args) == 4:
         if args[2] == "reg":
           model = ModelClass(train, test, num_items, reg=float(args[3]))
+          print("Regularization: {}".format(args[3]))
         elif args[2] == "delta":
           model = ModelClass(train, test, num_items, delta=float(args[3]))
+          print("Delta: {}".format(args[3]))
         else:
           model = ModelClass(train, test, num_items)
       elif len(args) == 5 and args[2] == "reg" and args[3] == "delta":
         model = ModelClass(train, test, num_items, reg=float(args[3]), delta=float(args[4]))
+        print("Regularization: {}\nDelta: {}".format(args[3], args[4]))
       else:
         model = ModelClass(train, test, num_items)
         
