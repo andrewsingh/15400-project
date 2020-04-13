@@ -87,7 +87,7 @@ class MatrixFactorization:
     rmse = self.evaluate()
     prev_rmse = 1000
     rounds = 0
-    num_iters = 20 # change back to 20
+    num_iters = 1 # change back to 20
     threshold = -0.001
 
     while rmse - prev_rmse < threshold:
@@ -100,14 +100,14 @@ class MatrixFactorization:
         for user in range(self.num_train_users):
           step = self.get_u_step(user)
           self.U[user] += self.lrate * step
-        # print("User iter {}".format(i))
+        print("User iter {}".format(i))
           
       # Optimize V
       for i in range(num_iters):
         for item in self.V_index:
           step = self.get_v_step(item)
           self.V[item] += self.lrate * step
-        # print("Item iter {}".format(i))
+        print("Item iter {}".format(i))
           
       rmse = self.evaluate()
       rounds += 1
@@ -196,28 +196,65 @@ class HuberLoss(MatrixFactorization):
 
 
 
+def estGeneral1D(X, v, eta):
+  v = v / np.linalg.norm(v)
+  m = X.shape[0]
+  Z = X * v
+  np.sort(Z)
 
-def huberGradientEst(grads, corruption):
-  grads_mean = np.mean(grads, axis=0)
-  grads_c = grads - grads_mean
-  (n, k) = grads_c.shape
-  (u, s, vh) = np.linalg.svd(grads_c)
-  v = vh[:, 1].reshape((-1, 1))
-  pv = np.matmul(grads, v)
-  pv_std = np.std(pv)
-  if pv_std > 0:
-    # robust mean
-    pv_z = np.abs(pv - np.mean(pv)) / pv_std
-    muv = np.mean(pv[np.argsort(pv_z)][:int(corruption * n)]) 
-  else:
-    muv = np.mean(pv)
-  w = vh[:, 1:]
-  pw = np.matmul(grads, w)
-  muw = np.mean(pw, axis=0)
-  wv = np.append(w.T, v.T, axis=0)
-  wvi = np.linalg.pinv(wv)
-  muw_muv = np.append(muw, muv)
-  return np.matmul(wvi, muw_muv).reshape(-1)
+  intervalWidth = int(m * ((1 - eta) ** 2))
+  lengths = np.zeros(m - intervalWidth + 1)
+
+  for i in range(m - intervalWidth + 1):
+    lengths[i] = Z[i + intervalWidth - 1] - Z[i]
+
+  ind = np.argmin(lengths)
+  mu = np.mean(Z[ind : ind + intervalWidth])
+  return mu
+
+
+def outRemBall(X, eta):
+  m = X.shape[0]
+  w = np.ones(m)
+  Z = X - np.median(X, axis=0)
+  T = np.sum(Z ** 2, axis=1)
+  thresh = np.percentile(T, (100 * ((1 - eta) ** 2)))
+  w[T > thresh] = 0
+  return w
+
+
+def agnosticMeanGeneral(X, eta):
+  n = X.shape[1]
+  if n <= 1:
+    est = estGeneral1D(X.reshape(-1,), 1, eta)
+    return np.array([est])
+  
+  w = outRemBall(X, eta)
+  newX = X[w > 0]
+
+  S = np.cov(newX, rowvar=False)
+  # print("S: {}".format(S.shape))
+  [D, V] = np.linalg.eigh(S)
+
+  if False not in (np.diff(D) >= 0):
+    inds = np.argsort(D)
+    V = V[:, inds]
+
+  PW = np.matmul(V[:, :int(n / 2)], V[:, :int(n / 2)].T)
+  weightedProjX = np.matmul(newX, PW)
+  est1 = np.mean(weightedProjX, axis=0)
+  # print("est 1: {}".format(est1.shape))
+
+  QV = V[:, int(n / 2):]
+  # print("QV: {}".format(QV.shape))
+  # print("newX: {}".format(newX.shape))
+  est2 = agnosticMeanGeneral(np.matmul(X, QV), eta)
+  # print("est2 shape: {}".format(est2.shape))
+  # print("est2: {}".format(est2))
+  est2 = np.matmul(est2, QV.T)
+  est = est1 + est2
+  return est
+
 
 
 
@@ -231,14 +268,16 @@ class HuberGradient(MatrixFactorization):
     data = self.train_u[self.U_start[user] : self.U_start[user + 1]]
     vmat = self.V[data[:, 1]]
     preds = np.matmul(vmat, self.U[user])
-    return huberGradientEst(np.multiply((data[:, 2] - preds).reshape((-1, 1)), vmat), self.corruption) - (self.reg * self.U[user])
+    return agnosticMeanGeneral(np.multiply((data[:, 2] - preds).reshape((-1, 1)), vmat), self.corruption) - (self.reg * self.U[user])
 
     
   def get_v_step(self, item):
     data = self.train_v[self.V_start[item] : self.V_start[item + 1]]
     umat = self.U[data[:, 0]]
     preds = np.matmul(umat, self.V[item])
-    return huberGradientEst(np.multiply((data[:, 2] - preds).reshape((-1, 1)), umat), self.corruption) - (self.reg * self.V[item])
+    if len(data) <= 1:
+      return np.multiply((data[:, 2] - preds).reshape((-1, 1)), umat).reshape(-1,) - (self.reg * self.V[item])
+    return agnosticMeanGeneral(np.multiply((data[:, 2] - preds).reshape((-1, 1)), umat), self.corruption) - (self.reg * self.V[item])
 
 
 
@@ -420,14 +459,22 @@ if __name__ == '__main__':
       elif args[2] == "hl":
         print("Attacking Huber loss model")
         average_attack(HuberLoss)
+      elif args[2] == "wm":
+        print("Attacking weighted mean model")
+        average_attack(WeightedMean)
       elif args[2] == "all":
         print("Attacking all models")
         average_attack(LeastSquares)
         average_attack(LeastAbsDev)
         average_attack(HuberLoss)
-      
 
-    
+  else:
+    X = np.random.standard_normal((100, 30))
+    X[range(0, 100, 10)] = np.random.uniform(-10, 10, (10, 30))
+    est = agnosticMeanGeneral(X, 0.1)
+    print("mean norm: {}".format(np.linalg.norm(np.mean(X, axis=0))))
+    print("median norm: {}".format(np.linalg.norm(np.median(X, axis=0))))
+    print("est norm: {}".format(np.linalg.norm(est)))
 
 
 
