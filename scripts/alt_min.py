@@ -87,7 +87,11 @@ class MatrixFactorization:
     rmse = self.evaluate()
     prev_rmse = 1000
     rounds = 0
+<<<<<<< HEAD
     num_iters = 1 # change back to 20
+=======
+    num_iters = 20
+>>>>>>> 8d2186ba0876fde75ec1884ed9d2ba20f94f769d
     threshold = -0.001
 
     while rmse - prev_rmse < threshold:
@@ -255,6 +259,37 @@ def agnosticMeanGeneral(X, eta):
   est = est1 + est2
   return est
 
+<<<<<<< HEAD
+=======
+def huberGradientEst(grads, corruption):
+  grads_mean = np.mean(grads, axis=0)
+  grads_c = grads - grads_mean
+  (n, k) = grads_c.shape
+  try:
+    (u, s, vh) = np.linalg.svd(grads_c)
+  except np.linalg.LinAlgError:
+    return grads_mean
+  v = vh[:, 1].reshape((-1, 1))
+  pv = np.matmul(grads, v)
+  pv_std = np.std(pv)
+  if pv_std > 0:
+    # robust mean
+    pv_z = np.abs(pv - np.mean(pv)) / pv_std
+    truncated = pv[np.argsort(pv_z)][:int(corruption * n)]
+    if len(truncated) > 0:
+      muv = np.mean(truncated)
+    else:
+      muv = np.mean(pv)
+  else:
+    muv = np.mean(pv)
+  w = vh[:, 1:]
+  pw = np.matmul(grads, w)
+  muw = np.mean(pw, axis=0)
+  wv = np.append(w.T, v.T, axis=0)
+  wvi = np.linalg.pinv(wv)
+  muw_muv = np.append(muw, muv)
+  return np.matmul(wvi, muw_muv).reshape(-1)
+>>>>>>> 8d2186ba0876fde75ec1884ed9d2ba20f94f769d
 
 
 
