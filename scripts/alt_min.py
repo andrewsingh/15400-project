@@ -6,7 +6,7 @@ import pickle
 import time
 
 
-verbose = True
+# verbose = False
 
 
 class MatrixFactorization:
@@ -75,18 +75,19 @@ class MatrixFactorization:
     pass
 
 
-  def alt_min(self):
+  def alt_min(self, verbose):
     np.random.seed(0)
     self.U = np.random.uniform(-1, 1, (self.num_train_users, self.num_factors))
     self.V = np.random.uniform(-1, 1, (self.num_items, self.num_factors))
 
     rmse = self.evaluate()
     prev_rmse = 1000
+    min_rmse = rmse
     rounds = 0
     num_iters = 20
     threshold = -0.0001
 
-    while rmse - prev_rmse < threshold or rounds < 200:
+    while rmse - prev_rmse < threshold or rounds < 100:
       if verbose:
         t0 = time.time()
       prev_rmse = rmse
@@ -95,37 +96,50 @@ class MatrixFactorization:
       for i in range(num_iters):
         for user in range(self.num_train_users):
           step = self.get_u_step(user)
+          # grad_norm = np.linalg.norm(step)
+          # print("grad norm: {}".format(np.linalg.norm(step)))
+          # if (grad_norm >= 3):
+          #   print("grad norm: {}".format(np.linalg.norm(step)))
+          #   print(step)
           self.U[user] += self.lrate * step
+          # print("grad norm: {}".format(np.linalg.norm(self.lrate * step)))
         # print("User iter {}".format(i))
+        
           
       # Optimize V
       for i in range(num_iters):
         for item in self.V_index:
           step = self.get_v_step(item)
+          # print("grad norm: {}".format(np.linalg.norm(step)))
           self.V[item] += self.lrate * step
         # print("Item iter {}".format(i))
           
       rmse = self.evaluate()
+      if rmse < min_rmse:
+        min_rmse = rmse
+
       rounds += 1
 
       if verbose:
         t1 = time.time()
-        train_rmse = self.evaluate(False)
-        print("\n==================== ROUND {} ====================\nRMSE: {}\nPrev RMSE: {}\nDiff: {}\nTrain RMSE: {}\nExecution time: {}\n" \
-          .format(rounds, round(rmse, 4), round(prev_rmse, 4), round(rmse - prev_rmse, 4), round(train_rmse, 4), round(t1 - t0, 2)))
+        # train_rmse = self.evaluate(False)
+        print("\n==================== ROUND {} ====================\nRMSE: {}\nPrev RMSE: {}\nDiff: {}\nExecution time: {}\n" \
+          .format(rounds, round(rmse, 4), round(prev_rmse, 4), round(rmse - prev_rmse, 4), round(t1 - t0, 2)))
       
-      if verbose:
         print("max U: {}\nmin U: {}\navg U: {}\n".format(np.amax(self.U), np.amin(self.U), np.mean(self.U)))
         print("max V: {}\nmin V: {}\navg V: {}\n".format(np.amax(self.V), np.amin(self.V), np.mean(self.V)))
+        print("Factors: {}".format(self.num_factors))
         print("Regularization: {}".format(self.reg))
-        print("Final RMSE: {}\n".format(rmse))
-      
+        print("RMSE: {}\n".format(rmse))
+
+    return min_rmse    
+
 
 
 
 
 class LeastSquares(MatrixFactorization):
-  def __init__(self, train, test, num_items, num_factors=30, lrate=0.1, reg=0.1):
+  def __init__(self, train, test, num_items, num_factors, reg, lrate=0.1):
     MatrixFactorization.__init__(self, train, test, num_items, num_factors, lrate, reg)
 
 
@@ -145,7 +159,7 @@ class LeastSquares(MatrixFactorization):
 
 
 class LeastAbsDev(MatrixFactorization):
-  def __init__(self, train, test, num_items, num_factors=30, lrate=0.1, reg=0.1):
+  def __init__(self, train, test, num_items, num_factors, reg, lrate=0.1):
     MatrixFactorization.__init__(self, train, test, num_items, num_factors, lrate, reg)
 
 
@@ -166,7 +180,7 @@ class LeastAbsDev(MatrixFactorization):
 
 
 class HuberLoss(MatrixFactorization):
-  def __init__(self, train, test, num_items, num_factors=30, lrate=0.1, reg=0.1, delta=1):
+  def __init__(self, train, test, num_items, num_factors, reg, lrate=0.1, delta=1):
     MatrixFactorization.__init__(self, train, test, num_items, num_factors, lrate, reg)
     self.delta = delta
     if verbose:
@@ -227,7 +241,7 @@ def agnosticMeanGeneral(X, eta):
   newX = X[w > 0]
 
   S = np.cov(newX, rowvar=False)
-  [D, V] = np.linalg.eigh(S)
+  [_, V] = np.linalg.eigh(S)
 
   PW = np.matmul(V[:, :int(n / 2)], V[:, :int(n / 2)].T)
   weightedProjX = np.matmul(newX, PW)
@@ -237,13 +251,14 @@ def agnosticMeanGeneral(X, eta):
   est2 = agnosticMeanGeneral(np.matmul(X, QV), eta)
   est2 = np.matmul(est2, QV.T)
   est = est1 + est2
+  # print("ratio: {}".format(np.linalg.norm(est / np.mean(X, axis=0))))
   return est
 
 
 
 
 class HuberGradient(MatrixFactorization):
-  def __init__(self, train, test, num_items, corruption, num_factors=30, lrate=0.1, reg=0.1):
+  def __init__(self, train, test, num_items, num_factors, reg, corruption, lrate=0.0183):
     MatrixFactorization.__init__(self, train, test, num_items, num_factors, lrate, reg)
     self.corruption = corruption
     

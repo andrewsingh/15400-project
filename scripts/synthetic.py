@@ -2,16 +2,17 @@ import sys
 import numpy as np
 import pandas as pd
 import alt_min
+import argparse
 
 
 
-def run_experiment(ModelClass, n, r, p, eta, c, reg=None):
+def run_experiment(ModelClass, reg, n, r, p, eta, c, b, verbose):
   U = np.random.standard_normal((n, r))
   V = np.random.standard_normal((r, n))
   L = np.matmul(U, V)
 
   mask_eta = np.random.rand(L.shape[0], L.shape[1])
-  S = np.random.uniform(-c, c, L.shape)
+  S = np.random.uniform(-c + b, c + b, L.shape)
   S[mask_eta < 1 - eta] = 0
 
   M = L + S
@@ -43,58 +44,56 @@ def run_experiment(ModelClass, n, r, p, eta, c, reg=None):
       rating_col.append(rating)
   test = pd.DataFrame.from_dict({"user": user_col, "item": item_col, "rating": rating_col})
 
-  if reg == None:
-    if ModelClass.__name__ == "HuberGradient":
-      model = ModelClass(train, test, n, corruption=eta)
-    else:
-      model = ModelClass(train, test, n)
+  if ModelClass.__name__ == "HuberGradient":
+    model = ModelClass(train, test, n, num_factors=r, reg=reg, corruption=eta)
   else:
-    if ModelClass.__name__ == "HuberGradient":
-      model = ModelClass(train, test, n, corruption=eta, reg=reg)
-    else:
-      model = ModelClass(train, test, n, reg=reg)
-    print("Regularization: {}".format(reg))
+    model = ModelClass(train, test, n, num_factors=r, reg=reg)
     
-  model.alt_min()
+  return model.alt_min(verbose)
 
 
 
 if __name__ == '__main__':
-  args = sys.argv
-  if len(args) >= 2:
-    if args[1] == "ls":
-      print("Training least squares model")
-      ModelClass = alt_min.LeastSquares
-    elif args[1] == "lad":
-      print("Training least abs dev model")
-      ModelClass = alt_min.LeastAbsDev
-    elif args[1] == "hl":
-      print("Training Huber loss model")
-      ModelClass = alt_min.HuberLoss
-    elif args[1] == "hg":
-      print("Training Huber gradient model")
-      ModelClass = alt_min.HuberGradient
-    else:
-      ModelClass = alt_min.LeastSquares
+  parser = argparse.ArgumentParser(description='Alt-Min matrix completion algorithm')
 
-    n = 200
-    r = 20
-    p = 0.2
-    eta = 0.1
-    c = 100
+  parser.add_argument("-n", dest="n", type=int)
+  parser.add_argument("-r", dest="r", type=int)
+  parser.add_argument("-p", dest="p", type=float)
+  parser.add_argument("-eta", dest="eta", type=float)
+  parser.add_argument("-c", dest="c", type=float, default=100)
+  parser.add_argument("-b", dest="b", type=float, default=0)
+  parser.add_argument("-m", dest="mclass")
+  parser.add_argument("-reg", dest="reg", type=float)
+  parser.add_argument("-v", action="store_true")
+  
+  args = parser.parse_args()
 
-    if len(args) >= 4 and args[2] == "reg":
-      run_experiment(ModelClass, n, r, p, eta, c, float(args[3]))
-    else:
-      run_experiment(ModelClass, n, r, p, eta, c)
+  if args.mclass == "ls":
+    print("Training least squares model")
+    ModelClass = alt_min.LeastSquares
+  elif args.mclass == "lad":
+    print("Training least abs dev model")
+    ModelClass = alt_min.LeastAbsDev
+  elif args.mclass == "hl":
+    print("Training Huber loss model")
+    ModelClass = alt_min.HuberLoss
+  elif args.mclass == "hg":
+    print("Training Huber gradient model")
+    ModelClass = alt_min.HuberGradient
   else:
-    X = np.random.standard_normal((100, 30))
-    X[range(0, 100, 10)] = np.random.uniform(-100, 100, (10, 30))
-    est = alt_min.agnosticMeanGeneral(X, 0.1)
-    print("mean norm: {}".format(np.linalg.norm(np.mean(X, axis=0))))
-    print("median norm: {}".format(np.linalg.norm(np.median(X, axis=0))))
-    print("est norm: {}".format(np.linalg.norm(est)))
-    
+    ModelClass = alt_min.LeastSquares
+
+  rmse = run_experiment(ModelClass, args.reg, args.n, args.r, args.p, args.eta, args.c, args.b, args.v)
+  print("Experiment complete\nargs: {}".format(args))
+  with open("../results/synthetic/exp_log.txt", "a+") as f:
+    f.write("{} final RMSE: {}\n".format(args, rmse))
+
+
+
+
+
+
+
 
     
 
