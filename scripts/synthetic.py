@@ -44,7 +44,7 @@ def run_experiment(ModelClass, reg, n, r, p, eta, c, b, verbose):
       rating_col.append(rating)
   test = pd.DataFrame.from_dict({"user": user_col, "item": item_col, "rating": rating_col})
 
-  if ModelClass.__name__ == "HuberGradient":
+  if ModelClass.__name__ in ["HuberGradient", "RemoveOutliers"]:
     model = ModelClass(train, test, n, num_factors=r, reg=reg, corruption=eta)
   else:
     model = ModelClass(train, test, n, num_factors=r, reg=reg)
@@ -60,7 +60,7 @@ if __name__ == '__main__':
   parser.add_argument("-r", dest="r", type=int)
   parser.add_argument("-p", dest="p", type=float)
   parser.add_argument("-eta", dest="eta", type=float)
-  parser.add_argument("-c", dest="c", type=float, default=100)
+  parser.add_argument("-c", dest="c", type=float, default=50)
   parser.add_argument("-b", dest="b", type=float, default=0)
   parser.add_argument("-m", dest="mclass")
   parser.add_argument("-reg", dest="reg", type=float)
@@ -80,6 +80,9 @@ if __name__ == '__main__':
   elif args.mclass == "hg":
     print("Training Huber gradient model")
     ModelClass = alt_min.HuberGradient
+  elif args.mclass == "ro":
+    print("Training remove outliers model")
+    ModelClass = alt_min.RemoveOutliers
   else:
     ModelClass = alt_min.LeastSquares
 

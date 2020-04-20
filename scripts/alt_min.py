@@ -91,18 +91,18 @@ class MatrixFactorization:
       if verbose:
         t0 = time.time()
       prev_rmse = rmse
+
+      max_u_grad = 0
+      max_v_grad = 0
       
       # Optmize U
       for i in range(num_iters):
         for user in range(self.num_train_users):
           step = self.get_u_step(user)
-          # grad_norm = np.linalg.norm(step)
-          # print("grad norm: {}".format(np.linalg.norm(step)))
-          # if (grad_norm >= 3):
-          #   print("grad norm: {}".format(np.linalg.norm(step)))
-          #   print(step)
           self.U[user] += self.lrate * step
-          # print("grad norm: {}".format(np.linalg.norm(self.lrate * step)))
+          step_norm = np.linalg.norm(step)
+          if step_norm > max_u_grad:
+            max_u_grad = step_norm
         # print("User iter {}".format(i))
         
           
@@ -110,8 +110,10 @@ class MatrixFactorization:
       for i in range(num_iters):
         for item in self.V_index:
           step = self.get_v_step(item)
-          # print("grad norm: {}".format(np.linalg.norm(step)))
           self.V[item] += self.lrate * step
+          step_norm = np.linalg.norm(step)
+          if step_norm > max_v_grad:
+            max_v_grad = step_norm
         # print("Item iter {}".format(i))
           
       rmse = self.evaluate()
@@ -122,15 +124,13 @@ class MatrixFactorization:
 
       if verbose:
         t1 = time.time()
-        # train_rmse = self.evaluate(False)
         print("\n==================== ROUND {} ====================\nRMSE: {}\nPrev RMSE: {}\nDiff: {}\nExecution time: {}\n" \
           .format(rounds, round(rmse, 4), round(prev_rmse, 4), round(rmse - prev_rmse, 4), round(t1 - t0, 2)))
       
         print("max U: {}\nmin U: {}\navg U: {}\n".format(np.amax(self.U), np.amin(self.U), np.mean(self.U)))
         print("max V: {}\nmin V: {}\navg V: {}\n".format(np.amax(self.V), np.amin(self.V), np.mean(self.V)))
-        print("Factors: {}".format(self.num_factors))
-        print("Regularization: {}".format(self.reg))
-        print("RMSE: {}\n".format(rmse))
+        print("max U grad: {}\nmax V grad: {}\n".format(max_u_grad, max_v_grad))
+        
 
     return min_rmse    
 
@@ -183,8 +183,7 @@ class HuberLoss(MatrixFactorization):
   def __init__(self, train, test, num_items, num_factors, reg, lrate=0.1, delta=1):
     MatrixFactorization.__init__(self, train, test, num_items, num_factors, lrate, reg)
     self.delta = delta
-    if verbose:
-      print("delta = {}".format(self.delta))
+   
 
   def get_u_step(self, user):
     data = self.train_u[self.U_start[user] : self.U_start[user + 1]]
@@ -251,14 +250,14 @@ def agnosticMeanGeneral(X, eta):
   est2 = agnosticMeanGeneral(np.matmul(X, QV), eta)
   est2 = np.matmul(est2, QV.T)
   est = est1 + est2
-  # print("ratio: {}".format(np.linalg.norm(est / np.mean(X, axis=0))))
   return est
 
 
 
 
+
 class HuberGradient(MatrixFactorization):
-  def __init__(self, train, test, num_items, num_factors, reg, corruption, lrate=0.0183):
+  def __init__(self, train, test, num_items, num_factors, reg, corruption, lrate=0.1):
     MatrixFactorization.__init__(self, train, test, num_items, num_factors, lrate, reg)
     self.corruption = corruption
     
@@ -267,21 +266,46 @@ class HuberGradient(MatrixFactorization):
     data = self.train_u[self.U_start[user] : self.U_start[user + 1]]
     vmat = self.V[data[:, 1].astype(int)]
     preds = np.matmul(vmat, self.U[user])
-    return agnosticMeanGeneral(np.multiply((data[:, 2] - preds).reshape((-1, 1)), vmat) - (self.reg * self.U[user]), self.corruption) 
+    robust_grad_mean = agnosticMeanGeneral(np.multiply((data[:, 2] - preds).reshape((-1, 1)), vmat), self.corruption)
+    return (robust_grad_mean / np.sqrt(self.num_factors)) - (self.reg * self.U[user])
 
     
   def get_v_step(self, item):
     data = self.train_v[self.V_start[item] : self.V_start[item + 1]]
     umat = self.U[data[:, 0].astype(int)]
     preds = np.matmul(umat, self.V[item])
-    # if len(data) <= 1:
-    #   return np.multiply((data[:, 2] - preds).reshape((-1, 1)), umat).reshape(-1,) - (self.reg * self.V[item])
-    return agnosticMeanGeneral(np.multiply((data[:, 2] - preds).reshape((-1, 1)), umat) - (self.reg * self.V[item]), self.corruption) 
+    robust_grad_mean = agnosticMeanGeneral(np.multiply((data[:, 2] - preds).reshape((-1, 1)), umat), self.corruption)
+    return (robust_grad_mean / np.sqrt(self.num_factors)) - (self.reg * self.V[item])
 
 
 
 
 
+def removeOutlierMean(X, sqres, eta):
+  index_array = np.argsort(sqres)
+  print(X[index_array][:(int)((1 - eta) * X.shape[0])])
+  return np.mean(X[index_array][:(int)((1 - eta) * X.shape[0])], axis=0)
+
+
+
+class RemoveOutliers(MatrixFactorization):
+  def __init__(self, train, test, num_items, num_factors, reg, corruption, lrate=0.1):
+    MatrixFactorization.__init__(self, train, test, num_items, num_factors, lrate, reg)
+    self.corruption = corruption
+
+
+  def get_u_step(self, user):
+    data = self.train_u[self.U_start[user] : self.U_start[user + 1]]
+    vmat = self.V[data[:, 1].astype(int)]
+    preds = np.matmul(vmat, self.U[user])
+    return removeOutlierMean(np.multiply((data[:, 2] - preds).reshape((-1, 1)), vmat), (data[:, 2] - preds) ** 2, self.corruption) - (self.reg * self.U[user])
+
+    
+  def get_v_step(self, item):
+    data = self.train_v[self.V_start[item] : self.V_start[item + 1]]
+    umat = self.U[data[:, 0].astype(int)]
+    preds = np.matmul(umat, self.V[item])
+    return removeOutlierMean(np.multiply((data[:, 2] - preds).reshape((-1, 1)), umat), (data[:, 2] - preds) ** 2, self.corruption) - (self.reg * self.V[item])
 
         
 
