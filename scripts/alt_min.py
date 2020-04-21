@@ -283,7 +283,7 @@ class HuberGradient(MatrixFactorization):
 
 def removeOutlierMean(X, sqres, eta):
   index_array = np.argsort(sqres)
-  print(X[index_array][:(int)((1 - eta) * X.shape[0])])
+  # print(X[index_array][:(int)((1 - eta) * X.shape[0])])
   return np.mean(X[index_array][:(int)((1 - eta) * X.shape[0])], axis=0)
 
 

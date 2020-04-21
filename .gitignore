@@ -2,5 +2,6 @@
 .vscode/
 .ipynb_checkpoints/
 data/
-results/
+results/average_attack/
+results/experiment2/
 __pycache__/
