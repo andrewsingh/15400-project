@@ -6,25 +6,44 @@ import argparse
 
 
 
-def generate_noise_mask(n, eta):
+def generate_prob_mask(n, p):
+  row_visible = np.zeros(n).astype(int)
+  col_visible = np.zeros(n).astype(int)
+  prob_mask = np.zeros((n, n))
+  visible = 0
+  for entry in np.random.permutation(n * n):
+    row = (int)(entry / n)
+    col = entry % n
+    if (row_visible[row] < n * p) and (col_visible[col] < n * p):
+      prob_mask[row][col] = 1
+      visible += 1
+      row_visible[row] += 1
+      col_visible[col] += 1
+    if visible == n * n * p:
+      break
+  return prob_mask
+
+
+def generate_noise_mask(n, p, eta, prob_mask):
   row_corruptions = np.zeros(n).astype(int)
   col_corruptions = np.zeros(n).astype(int)
   noise_mask = np.zeros((n, n))
-  entries = np.random.permutation(n * n)
+  visible_entries = []
+  for i in range(n):
+    for j in range(n):
+      if prob_mask[i][j] != 0:
+        visible_entries.append((i, j))
+  visible_entries = np.random.permutation(visible_entries)
   corruptions = 0
-  for entry in entries:
-    row = (int)(entry / n)
-    col = entry % n
-    if (row_corruptions[row] < n * eta) and (col_corruptions[col] < n * eta):
+  for (row, col) in visible_entries:
+    if (row_corruptions[row] < n * p * eta) and (col_corruptions[col] < n * p * eta):
       noise_mask[row][col] = 1
       corruptions += 1
       row_corruptions[row] += 1
       col_corruptions[col] += 1
-    if corruptions == n * n * eta:
+    if corruptions == n * n * p * eta:
       break
   return noise_mask
-
-    
 
 
 def run_experiment(ModelClass, reg, n, r, p, eta, c, b, verbose):
@@ -32,15 +51,12 @@ def run_experiment(ModelClass, reg, n, r, p, eta, c, b, verbose):
   V = np.random.standard_normal((r, n))
   L = np.matmul(U, V)
 
-  noise_mask = generate_noise_mask(n, eta)
-  S = np.random.uniform(-c + b, c + b, L.shape)
-  S *= noise_mask
-
-  M = L + S
-  prob_mask = np.random.rand(M.shape[0], M.shape[1])
-  prob_mask[prob_mask < 1 - p] = 0
-  prob_mask[prob_mask != 0] = 1
-  M_obs = np.multiply(M, prob_mask)
+  prob_mask = generate_prob_mask(n, p)
+  noise_mask = generate_noise_mask(n, p, eta, prob_mask)
+  S_obs = np.random.uniform(-c + b, c + b, L.shape) * noise_mask
+  M_obs = (L * prob_mask) + S_obs
+  print("Observations: {}".format(len(M_obs[M_obs != 0])))
+  print("Corruptions: {}".format(len(S_obs[S_obs != 0])))
 
   user_col = []
   item_col = []
@@ -87,7 +103,7 @@ if __name__ == '__main__':
   parser.add_argument("-reg", dest="reg", type=float)
   parser.add_argument("-v", action="store_true")
   
-  args = parser.parse_args()
+  args = parser.parse_args() 
 
   if args.mclass == "ls":
     print("Training least squares model")
@@ -104,6 +120,9 @@ if __name__ == '__main__':
   elif args.mclass == "ro":
     print("Training remove outliers model")
     ModelClass = alt_min.RemoveOutliers
+  elif args.mclass == "rone":
+    print("Training remove outliers no eta model")
+    ModelClass = alt_min.RemoveOutliersNoEta
   else:
     ModelClass = alt_min.LeastSquares
 

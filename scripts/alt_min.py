@@ -6,8 +6,6 @@ import pickle
 import time
 
 
-# verbose = False
-
 
 class MatrixFactorization:
   def __init__(self, train, test, num_items, num_factors, lrate, reg):
@@ -86,6 +84,7 @@ class MatrixFactorization:
     rounds = 0
     num_iters = 20
     threshold = -0.0001
+    prev_diff = rmse - prev_rmse
 
     while rmse - prev_rmse < threshold or rounds < 100:
       if verbose:
@@ -127,10 +126,15 @@ class MatrixFactorization:
         print("\n==================== ROUND {} ====================\nRMSE: {}\nPrev RMSE: {}\nDiff: {}\nExecution time: {}\n" \
           .format(rounds, round(rmse, 4), round(prev_rmse, 4), round(rmse - prev_rmse, 4), round(t1 - t0, 2)))
       
-        print("max U: {}\nmin U: {}\navg U: {}\n".format(np.amax(self.U), np.amin(self.U), np.mean(self.U)))
-        print("max V: {}\nmin V: {}\navg V: {}\n".format(np.amax(self.V), np.amin(self.V), np.mean(self.V)))
-        print("max U grad: {}\nmax V grad: {}\n".format(max_u_grad, max_v_grad))
+        print("max U: {}\nmin U: {}\navg U: {}\n".format(round(np.amax(self.U), 4), round(np.amin(self.U), 4), round(np.mean(self.U), 4)))
+        print("max V: {}\nmin V: {}\navg V: {}\n".format(round(np.amax(self.V), 4), round(np.amin(self.V), 4), round(np.mean(self.V), 4)))
+        print("max U grad: {}\nmax V grad: {}\n".format(round(max_u_grad, 4), round(max_v_grad, 4)))
         
+      if rounds > 20 and prev_diff >= 0 and (rmse - prev_rmse) >= 0:
+        break
+      
+      prev_diff - rmse - prev_rmse
+
 
     return min_rmse    
 
@@ -209,7 +213,7 @@ def estGeneral1D(X, eta):
   m = X.shape[0]
   Z = np.sort(X)
   
-  intervalWidth = int(m * ((1 - eta) ** 2))
+  intervalWidth = int(m * (1 - eta))
   lengths = np.zeros(m - intervalWidth + 1)
 
   for i in range(m - intervalWidth + 1):
@@ -225,9 +229,10 @@ def outRemBall(X, eta):
   w = np.ones(m)
   Z = X - np.median(X, axis=0)
   T = np.sum(Z ** 2, axis=1)
-  thresh = np.percentile(T, (100 * ((1 - eta) ** 2)))
+  thresh = np.percentile(T, (100 * (1 - eta)))
   w[T > thresh] = 0
   return w
+
 
 
 def agnosticMeanGeneral(X, eta):
@@ -266,25 +271,44 @@ class HuberGradient(MatrixFactorization):
     data = self.train_u[self.U_start[user] : self.U_start[user + 1]]
     vmat = self.V[data[:, 1].astype(int)]
     preds = np.matmul(vmat, self.U[user])
-    robust_grad_mean = agnosticMeanGeneral(np.multiply((data[:, 2] - preds).reshape((-1, 1)), vmat), self.corruption)
-    return (robust_grad_mean / np.sqrt(self.num_factors)) - (self.reg * self.U[user])
+    robust_grad_mean = agnosticMeanGeneral(np.multiply((data[:, 2] - preds).reshape((-1, 1)), vmat) - (self.reg * self.U[user]), self.corruption)
+    return (robust_grad_mean / np.sqrt(self.num_factors)) 
 
     
   def get_v_step(self, item):
     data = self.train_v[self.V_start[item] : self.V_start[item + 1]]
     umat = self.U[data[:, 0].astype(int)]
     preds = np.matmul(umat, self.V[item])
-    robust_grad_mean = agnosticMeanGeneral(np.multiply((data[:, 2] - preds).reshape((-1, 1)), umat), self.corruption)
-    return (robust_grad_mean / np.sqrt(self.num_factors)) - (self.reg * self.V[item])
+    robust_grad_mean = agnosticMeanGeneral(np.multiply((data[:, 2] - preds).reshape((-1, 1)), umat) - (self.reg * self.V[item]), self.corruption)
+    return (robust_grad_mean / np.sqrt(self.num_factors)) 
 
 
 
 
 
-def removeOutlierMean(X, sqres, eta):
-  index_array = np.argsort(sqres)
-  # print(X[index_array][:(int)((1 - eta) * X.shape[0])])
-  return np.mean(X[index_array][:(int)((1 - eta) * X.shape[0])], axis=0)
+
+
+
+def removeOutlierMean(X, data, eta):
+  w = outRemBall(X, eta)
+  newX = X[w > 0]
+  return np.mean(newX, axis=0)
+
+  # index_array = np.argsort(data)
+  # index_array = np.argsort(np.linalg.norm(X, axis=1))
+  # a = X.reshape(-1,).astype(int)
+  # b = (X[index_array][:(int)((1 - eta) * X.shape[0])]).reshape(-1,).astype(int)
+  # print("Before: len {} {}".format(len(a), a))
+  # print("After: len {} {}".format(len(b), b))
+  # print("\n")
+  # return np.mean(X[index_array][:(int)((1 - eta) * X.shape[0])], axis=0)
+
+
+def removeOutlierMeanNoEta(X, data):
+  Z = np.absolute(data - np.mean(data)) / np.std(data)
+  newX = X[Z < 1.0]
+  # print(len(X) - len(newX))
+  return np.mean(newX, axis=0)
 
 
 
@@ -298,14 +322,34 @@ class RemoveOutliers(MatrixFactorization):
     data = self.train_u[self.U_start[user] : self.U_start[user + 1]]
     vmat = self.V[data[:, 1].astype(int)]
     preds = np.matmul(vmat, self.U[user])
-    return removeOutlierMean(np.multiply((data[:, 2] - preds).reshape((-1, 1)), vmat), (data[:, 2] - preds) ** 2, self.corruption) - (self.reg * self.U[user])
+    return removeOutlierMean(np.multiply((data[:, 2] - preds).reshape((-1, 1)), vmat), (data[:, 2] - preds), self.corruption) - (self.reg * self.U[user])
 
     
   def get_v_step(self, item):
     data = self.train_v[self.V_start[item] : self.V_start[item + 1]]
     umat = self.U[data[:, 0].astype(int)]
     preds = np.matmul(umat, self.V[item])
-    return removeOutlierMean(np.multiply((data[:, 2] - preds).reshape((-1, 1)), umat), (data[:, 2] - preds) ** 2, self.corruption) - (self.reg * self.V[item])
+    return removeOutlierMean(np.multiply((data[:, 2] - preds).reshape((-1, 1)), umat), (data[:, 2] - preds), self.corruption) - (self.reg * self.V[item])
+
+
+
+class RemoveOutliersNoEta(MatrixFactorization):
+  def __init__(self, train, test, num_items, num_factors, reg, lrate=0.1):
+    MatrixFactorization.__init__(self, train, test, num_items, num_factors, lrate, reg)
+
+
+  def get_u_step(self, user):
+    data = self.train_u[self.U_start[user] : self.U_start[user + 1]]
+    vmat = self.V[data[:, 1].astype(int)]
+    preds = np.matmul(vmat, self.U[user])
+    return removeOutlierMeanNoEta(np.multiply((data[:, 2] - preds).reshape((-1, 1)), vmat), (data[:, 2] - preds)) - (self.reg * self.U[user])
+
+    
+  def get_v_step(self, item):
+    data = self.train_v[self.V_start[item] : self.V_start[item + 1]]
+    umat = self.U[data[:, 0].astype(int)]
+    preds = np.matmul(umat, self.V[item])
+    return removeOutlierMeanNoEta(np.multiply((data[:, 2] - preds).reshape((-1, 1)), umat), (data[:, 2] - preds)) - (self.reg * self.V[item])
 
         
 
