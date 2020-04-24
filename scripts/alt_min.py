@@ -79,6 +79,7 @@ class MatrixFactorization:
     self.V = np.random.uniform(-1, 1, (self.num_items, self.num_factors))
 
     rmse = self.evaluate()
+    print("Initial RMSE: {}".format(rmse))
     prev_rmse = 1000
     min_rmse = rmse
     rounds = 0
@@ -133,7 +134,7 @@ class MatrixFactorization:
       if rounds > 20 and prev_diff >= 0 and (rmse - prev_rmse) >= 0:
         break
       
-      prev_diff - rmse - prev_rmse
+      prev_diff = rmse - prev_rmse
 
 
     return min_rmse    
