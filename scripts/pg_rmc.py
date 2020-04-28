@@ -43,15 +43,14 @@ def generate_noise_mask(n, p, eta, prob_mask):
 
 
 
-def ncrmc(M, r, c):
+def ncrmc(M, r, c, p):
     TOL = 1e-1
     incoh = 1
     EPS_S = 1e-3
     EPS = 1e-3
     run_time = 100
     MAX_ITER = 70
-    true_r = 5
-    p = 0.5
+    true_r = r
 
     tic = 0
 
@@ -114,7 +113,7 @@ def ncrmc(M, r, c):
 if __name__ == '__main__':
     n = 100
     r = 10
-    p = 0.2
+    p = 0.5
     eta = 0
     c = 50
     b = 50
@@ -128,7 +127,7 @@ if __name__ == '__main__':
     S_obs = np.random.uniform(-c + b, c + b, L.shape) * noise_mask
     M_obs = (L * prob_mask) + S_obs
 
-    (U_t, SV_t) = ncrmc(M_obs, r, 1)
+    (U_t, SV_t) = ncrmc(M_obs, r, 1, p)
     L_t = U_t @ SV_t
     final_frob_err = np.linalg.norm(L_t - L, "fro")
     final_rmse = np.sqrt((final_frob_err ** 2) / (n ** 2))
