@@ -1,7 +1,6 @@
 import numpy as np
 
 
-
 def generate_prob_mask(n, p):
   row_visible = np.zeros(n).astype(int)
   col_visible = np.zeros(n).astype(int)
@@ -43,19 +42,16 @@ def generate_noise_mask(n, p, eta, prob_mask):
 
 
 
-def ncrmc(M, r, c, p):
+def ncrmc(M, true_r, row, col, p):
     TOL = 1e-1
     incoh = 1
     EPS_S = 1e-3
     EPS = 1e-3
     run_time = 100
     MAX_ITER = 70
-    true_r = r
-
-    tic = 0
 
     (m1, m2) = M.shape
-    D_t = M[r + (m1 * (c - 1))]
+    D_t = M[row][col]
 
     n = np.sqrt(m1 * m2)
     frob_err = [1e9]
@@ -78,7 +74,7 @@ def ncrmc(M, r, c, p):
     S_t = []
 
     while frob_err[t] >= EPS and t < MAX_ITER:
-        print("iteration {}\n".format(t))
+        print("iteration {}\nfrob_err: {}\n".format(t, frob_err[t]))
         t = t + 1
 
         spL_t = U_t @ SV_t
@@ -127,9 +123,14 @@ if __name__ == '__main__':
     S_obs = np.random.uniform(-c + b, c + b, L.shape) * noise_mask
     M_obs = (L * prob_mask) + S_obs
 
-    (U_t, SV_t) = ncrmc(M_obs, r, 1, p)
+    # Tried normalizing the matrix first, as this was shown in one
+    # of the wrapper functions in the matlab code, but didn't help
+    # avg = np.mean(np.mean(M_obs, axis=0))
+    # M2 = M_obs - avg
+    # (U_t, SV_t) = ncrmc(M2, r, 1, 1, p)
+    # L_t = U_t @ SV_t + avg
+    (U_t, SV_t) = ncrmc(M_obs, r, 1, 1, p)
     L_t = U_t @ SV_t
     final_frob_err = np.linalg.norm(L_t - L, "fro")
     final_rmse = np.sqrt((final_frob_err ** 2) / (n ** 2))
-    print("final frob_err: {}\n".format(final_frob_err))
-    print("final RMSE: {}\n".format(final_rmse))
+    print("final frob_err: {}\nfinal RMSE: {}".format(final_frob_err, final_rmse))
