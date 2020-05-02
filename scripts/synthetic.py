@@ -91,6 +91,8 @@ def run_experiment(ModelClass, reg, n, r, p, eta, c, b, verbose):
 
 
 if __name__ == '__main__':
+  np.random.seed(0)
+  
   parser = argparse.ArgumentParser(description='Alt-Min matrix completion algorithm')
 
   parser.add_argument("-n", dest="n", type=int)

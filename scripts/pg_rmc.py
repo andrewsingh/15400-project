@@ -42,16 +42,16 @@ def generate_noise_mask(n, p, eta, prob_mask):
 
 
 
-def ncrmc(M, true_r, row, col, p):
+def ncrmc(M_obs, true_r, p, mask):
     TOL = 1e-1
     incoh = 1
     EPS_S = 1e-3
     EPS = 1e-3
     run_time = 100
-    MAX_ITER = 70
+    MAX_ITER = 100
 
-    (m1, m2) = M.shape
-    D_t = M[row][col]
+    (m1, m2) = M_obs.shape
+    D_t = np.copy(M_obs)
 
     n = np.sqrt(m1 * m2)
     frob_err = [1e9]
@@ -61,7 +61,7 @@ def ncrmc(M, true_r, row, col, p):
     thresh_red = 0.9
     r_hat = 1
 
-    B = D_t
+    B = np.copy(D_t)
     U_t = np.zeros((m1, 1))
     Sig_t = np.zeros((1, 1))
     V_t = np.zeros((m2, 1))
@@ -69,7 +69,8 @@ def ncrmc(M, true_r, row, col, p):
     Sig_t = np.diag(Sig_t)
     SV_t = Sig_t @ V_t.T
 
-    thresh = thresh_const * Sig_t / n
+    #thresh = thresh_const * Sig_t / n
+    thresh = 0
 
     S_t = []
 
@@ -77,24 +78,27 @@ def ncrmc(M, true_r, row, col, p):
         print("iteration {}\nfrob_err: {}\n".format(t, frob_err[t]))
         t = t + 1
 
-        spL_t = U_t @ SV_t
+        spL_t = (U_t @ SV_t) * mask
         D_t = B - spL_t
         idx_s = np.absolute(D_t) >= thresh
-        S_t = D_t
+        S_t = np.copy(D_t)
         S_t[~idx_s] = 0
 
         (U_t, Sig_t, V_t) = np.linalg.svd(U_t @ Sig_t @ V_t.T + (1 / p) * (D_t - S_t))
         Sig_t = np.diag(Sig_t)
-        sigma_t = Sig_t[r_hat + 1][r_hat + 1]
+        sigma_t = Sig_t[r_hat][r_hat]
 
         U_t = U_t[:, :r_hat]
         Sig_t = Sig_t[:r_hat, :r_hat]
         V_t = V_t[:, :r_hat]
         SV_t = Sig_t @ V_t.T
 
-        thresh = (thresh_const / n) * sigma_t
+        #thresh = (thresh_const / n) * sigma_t
 
-        spL_t = U_t @ SV_t
+        spL_t = (U_t @ SV_t) * mask
+        assert(np.array_equal(B, B * mask))
+        assert(np.array_equal(spL_t + S_t, (spL_t + S_t) * mask))
+        assert(np.array_equal(B, M_obs))
         frob_err.append(np.linalg.norm(B - (spL_t + S_t), "fro"))
 
         if ((frob_err[t - 1] - frob_err[t]) / frob_err[t - 1] <= TOL) and r_hat < true_r:
@@ -102,6 +106,8 @@ def ncrmc(M, true_r, row, col, p):
         elif ((frob_err[t - 1] - frob_err[t]) / frob_err[t - 1] <= TOL) and r_hat == true_r:
             thresh_const = thresh_const * thresh_red
 
+    rmse = np.sqrt((frob_err[t] ** 2) / p * (n ** 2))
+    print("iteration {}\nfrob_err: {}\nrmse: {}\n".format(t, frob_err[t], rmse))
     return (U_t, SV_t)
 
 
@@ -121,16 +127,18 @@ if __name__ == '__main__':
     prob_mask = generate_prob_mask(n, p)
     noise_mask = generate_noise_mask(n, p, eta, prob_mask)
     S_obs = np.random.uniform(-c + b, c + b, L.shape) * noise_mask
+    mask_diff = prob_mask - noise_mask
+    assert(len(mask_diff[mask_diff < 0]) == 0)
     M_obs = (L * prob_mask) + S_obs
 
     # Tried normalizing the matrix first, as this was shown in one
     # of the wrapper functions in the matlab code, but didn't help
-    # avg = np.mean(np.mean(M_obs, axis=0))
-    # M2 = M_obs - avg
-    # (U_t, SV_t) = ncrmc(M2, r, 1, 1, p)
-    # L_t = U_t @ SV_t + avg
-    (U_t, SV_t) = ncrmc(M_obs, r, 1, 1, p)
-    L_t = U_t @ SV_t
+    avg = np.mean(M_obs[M_obs > 0])
+    M2 = (M_obs - avg) * prob_mask
+    (U_t, SV_t) = ncrmc(M2, r, p, prob_mask)
+    L_t = U_t @ SV_t + avg
+    # (U_t, SV_t) = ncrmc(M_obs, r, p, prob_mask)
+    # L_t = U_t @ SV_t
     final_frob_err = np.linalg.norm(L_t - L, "fro")
     final_rmse = np.sqrt((final_frob_err ** 2) / (n ** 2))
     print("final frob_err: {}\nfinal RMSE: {}".format(final_frob_err, final_rmse))

@@ -187,3 +187,9 @@ Namespace(b=50.0, c=50.0, eta=0.0, mclass='ls', n=500, p=0.25, r=30, reg=0.0, v=
 Namespace(b=50.0, c=50.0, eta=0.3, mclass='hg', n=500, p=0.25, r=30, reg=0.1, v=True) final RMSE: 2.544151361467798
 Namespace(b=50.0, c=50.0, eta=0.2, mclass='hg', n=500, p=0.25, r=20, reg=0.05, v=True) final RMSE: 0.49689734722320994
 Namespace(b=50.0, c=50.0, eta=0.2, mclass='hg', n=500, p=0.25, r=10, reg=0.05, v=True) final RMSE: 0.22635940669006735
+Namespace(b=50.0, c=50.0, eta=0.1, mclass='lad', n=100, p=0.2, r=10, reg=0.05, v=True) final RMSE: 3.058889494574278
+Namespace(b=50.0, c=50.0, eta=0.0, mclass='ls', n=100, p=0.18, r=10, reg=0.05, v=True) final RMSE: 1.4403609556233565
+Namespace(b=50.0, c=50.0, eta=0.0, mclass='ls', n=100, p=0.2, r=10, reg=0.05, v=True) final RMSE: 0.9793107660775593
+Namespace(b=50.0, c=50.0, eta=0.0, mclass='ls', n=200, p=0.2, r=20, reg=0.05, v=True) final RMSE: 1.4708866705920662
+Namespace(b=50.0, c=50.0, eta=0.0, mclass='ls', n=200, p=0.2, r=15, reg=0.05, v=True) final RMSE: 0.772568181040464
+Namespace(b=50.0, c=50.0, eta=0.0, mclass='lad', n=200, p=0.2, r=15, reg=0.05, v=True) final RMSE: 0.22373874660622903
