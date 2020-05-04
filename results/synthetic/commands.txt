@@ -11,7 +11,9 @@ python3 synthetic.py -n 500 -r 30 -p 0.25 -eta 0.2 -c 50 -b 50 -m hg -reg 0.05 -
 python3 synthetic.py -n 500 -r 40 -p 0.25 -eta 0.2 -c 50 -b 50 -m hg -reg 0.1 -v
 
 
-python3 synthetic.py -n 500 -r 30 -p 0.25 -eta 0.1 -c 50 -b 50 -m hg -reg 0.05 -v; python3 synthetic.py -n 500 -r 30 -p 0.25 -eta 0.3 -c 50 -b 50 -m hg -reg 0.1 -v
+python3 synthetic.py -n 500 -r 30 -p 0.25 -eta 0.1 -c 50 -b 50 -m hg -reg 0.05 -v; python3 synthetic.py -n 500 -r 30 -p 0.35 -eta 0.2 -c 50 -b 50 -m hg -reg 0.05 -v
+
+python3 synthetic.py -n 500 -r 30 -p 0.25 -eta 0.3 -c 50 -b 50 -m hg -reg 0.1 -v
 
 
 python3 synthetic.py -n 500 -r 30 -p 0.3 -eta 0.2 -c 50 -b 50 -m ro -reg 0.05 -v
