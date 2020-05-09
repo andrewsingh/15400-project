@@ -41,7 +41,7 @@ def generate_noise_mask(n, p, eta, prob_mask):
       corruptions += 1
       row_corruptions[row] += 1
       col_corruptions[col] += 1
-    if corruptions == n * n * p * eta:
+    if corruptions == int(n * n * p * eta):
       break
   return noise_mask
 

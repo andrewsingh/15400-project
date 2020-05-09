@@ -4,10 +4,15 @@ import random
 import pandas as pd
 import pickle
 import time
+import argparse
 import alt_min
+from os import path
+
 
 
 trial_num = 2
+
+
 
 def average_attack(ModelClass):
   train = pd.read_pickle("../data/ml-1m-split/train.pkl").drop(["item_id", "timestamp"], axis=1)
@@ -95,65 +100,99 @@ def average_attack(ModelClass):
 
 
 
+def corrupt_data(data, num_users, num_items, eta, c, b):
+  if eta == 0:
+    return data
+  data_path = "../data/ml-1m-noisy/train{}_{}_{}.pkl".format(eta, c, b)
+  if path.exists(data_path):
+    return pd.read_pickle(data_path)
+
+  data_u = data.sort_values(by="user", axis=0).reset_index(drop=True).to_numpy()
+  data_v = data.sort_values(by="item", axis=0).reset_index(drop=True).to_numpy()
+  len_data = len(data)
+
+  U_freqs = data.groupby("user").size().values
+  V_group = data.groupby("item").size()
+  V_index = V_group.index.values
+  V_freqs = np.zeros(num_items, dtype="int")
+  for i in V_index:
+    V_freqs[i] = V_group[i]
+
+  u_corruptions = np.zeros(num_users).astype(int)
+  v_corruptions = np.zeros(num_items).astype(int)
+  corruptions = 0
+
+  data = data.sample(frac=1).reset_index(drop=True)
+
+  for (index, [user, item, rating]) in data.iterrows():
+    user_frac = u_corruptions[user] / U_freqs[user]
+    item_frac = v_corruptions[item] / V_freqs[item]
+    if user_frac < eta and item_frac < eta:
+      data.loc[index][2] = np.random.uniform(-c + b, c + b)
+      corruptions += 1
+      u_corruptions[user] += 1
+      v_corruptions[item] += 1
+    if corruptions == int(len_data * eta):
+      break
+    if index % 10000 == 0:
+      print(index)
+      print("corruption fraction: {}\n".format(corruptions / len_data))
+
+  data.to_pickle("../data/ml-1m-noisy/train{}_{}_{}.pkl".format(eta, c, b))
+  return data
+
+
+
+
+
+def run_experiment(ModelClass, reg, r, eta, c, b, verbose):
+  train = pd.read_pickle("../data/ml-1m-split/train.pkl").drop(["item_id", "timestamp"], axis=1)
+  test = pd.read_pickle("../data/ml-1m-split/test.pkl").drop(["item_id", "timestamp"], axis=1)
+  full = pd.read_pickle("../data/ml-1m-split/full.pkl").drop(["item_id", "timestamp"], axis=1)
+
+  num_users = len(full.groupby("user").size())
+  num_items = len(full.groupby("item").size())
+
+  train = corrupt_data(train, num_users, num_items, eta, c, b)
+
+  if ModelClass.__name__ in ["HuberGradient", "RemoveOutliers"]:
+    model = ModelClass(train, test, num_items, num_factors=r, reg=reg, corruption=eta)
+  else:
+    model = ModelClass(train, test, num_items, num_factors=r, reg=reg)
+  
+  return model.alt_min(verbose)
+
+
+
 
 if __name__ == '__main__':
-  args = sys.argv
-  if len(args) >= 2:
-    if args[1] != "attack":
-      verbose = True
-      train = pd.read_pickle("../data/ml-1m-split/train.pkl").drop(["item_id", "timestamp"], axis=1)
-      test = pd.read_pickle("../data/ml-1m-split/test.pkl").drop(["item_id", "timestamp"], axis=1)
-      full = pd.read_pickle("../data/ml-1m-split/full.pkl").drop(["item_id", "timestamp"], axis=1)
+  np.random.seed(0)
+  
+  parser = argparse.ArgumentParser(description='Alt-Min matrix completion algorithm')
 
-      num_users = len(full.groupby("user").size())
-      num_items = len(full.groupby("item").size())
+  parser.add_argument("-r", dest="r", type=int)
+  parser.add_argument("-eta", dest="eta", type=float)
+  parser.add_argument("-c", dest="c", type=float, default=50)
+  parser.add_argument("-b", dest="b", type=float, default=0)
+  parser.add_argument("-m", dest="mclass")
+  parser.add_argument("-reg", dest="reg", type=float)
+  parser.add_argument("-v", action="store_true")
+  
+  args = parser.parse_args() 
 
-      if args[1] == "ls":
-        print("Training least squares model")
-        ModelClass = alt_min.LeastSquares
-      elif args[1] == "lad":
-        print("Training least abs dev model")
-        ModelClass = alt_min.LeastAbsDev
-      elif args[1] == "hl":
-        print("Training Huber loss model")
-        ModelClass = alt_min.HuberLoss
-      elif args[1] == "hg":
-        print("Training Huber gradient model")
-        ModelClass = alt_min.HuberGradient
-
-      if len(args) == 4:
-        if args[2] == "reg":
-          model = ModelClass(train, test, num_items, reg=float(args[3]))
-          print("Regularization: {}".format(args[3]))
-        elif args[2] == "delta":
-          model = ModelClass(train, test, num_items, delta=float(args[3]))
-          print("Delta: {}".format(args[3]))
-        else:
-          model = ModelClass(train, test, num_items)
-      elif len(args) == 5 and args[2] == "reg" and args[3] == "delta":
-        model = ModelClass(train, test, num_items, reg=float(args[3]), delta=float(args[4]))
-        print("Regularization: {}\nDelta: {}".format(args[3], args[4]))
-      else:
-        model = ModelClass(train, test, num_items)
-        
-      model.alt_min()
-    
-
-    elif args[1] == "attack" and len(args) == 3:
-      if args[2] == "ls":
-        print("Attacking least squares model")
-        average_attack(alt_min.LeastSquares)
-      elif args[2] == "lad":
-        print("Attacking least abs dev model")
-        average_attack(alt_min.LeastAbsDev)
-      elif args[2] == "hl":
-        print("Attacking Huber loss model")
-        average_attack(alt_min.HuberLoss)
-
+  if args.mclass == "ls":
+    print("Training least squares model")
+    ModelClass = alt_min.LeastSquares
+  elif args.mclass == "lad":
+    print("Training least abs dev model")
+    ModelClass = alt_min.LeastAbsDev
+  elif args.mclass == "hg":
+    print("Training Huber gradient model")
+    ModelClass = alt_min.HuberGradient
   else:
-    X = np.random.standard_normal((100, 30))
-    X[range(0, 100, 10)] = np.random.uniform(-10, 10, (10, 30))
-    est = alt_min.agnosticMeanGeneral(X, 0.1)
-    print("mean norm: {}".format(np.linalg.norm(np.mean(X, axis=0))))
-    print("median norm: {}".format(np.linalg.norm(np.median(X, axis=0))))
-    print("est norm: {}".format(np.linalg.norm(est)))
+    ModelClass = alt_min.LeastSquares
+
+  rmse = run_experiment(ModelClass, args.reg, args.r, args.eta, args.c, args.b, args.v)
+  print("Experiment complete\nargs: {}".format(args))
+  with open("../results/movielens/ml_exp_log.txt", "a+") as f:
+    f.write("{} final RMSE: {}\n".format(args, rmse))

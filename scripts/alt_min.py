@@ -80,14 +80,16 @@ class MatrixFactorization:
 
     rmse = self.evaluate()
     print("Initial RMSE: {}".format(rmse))
+    
     prev_rmse = 1000
     min_rmse = rmse
     rounds = 0
-    num_iters = 20
+    num_iters = 1
     threshold = -0.0001
+    rounds_thresh = 10
     prev_diff = rmse - prev_rmse
 
-    while rmse - prev_rmse < threshold or rounds < 100:
+    while rmse - prev_rmse < threshold or rounds < rounds_thresh:
       if verbose:
         t0 = time.time()
       prev_rmse = rmse
@@ -103,9 +105,9 @@ class MatrixFactorization:
           step_norm = np.linalg.norm(step)
           if step_norm > max_u_grad:
             max_u_grad = step_norm
-        # print("User iter {}".format(i))
+        print("User iter {}".format(i))
         
-          
+
       # Optimize V
       for i in range(num_iters):
         for item in self.V_index:
@@ -114,7 +116,7 @@ class MatrixFactorization:
           step_norm = np.linalg.norm(step)
           if step_norm > max_v_grad:
             max_v_grad = step_norm
-        # print("Item iter {}".format(i))
+        print("Item iter {}".format(i))
           
       rmse = self.evaluate()
       if rmse < min_rmse:
@@ -245,7 +247,13 @@ def agnosticMeanGeneral(X, eta):
   w = outRemBall(X, eta)
   newX = X[w > 0]
 
+  if len(newX) == 0:
+    newX = X
+  
   S = np.cov(newX, rowvar=False)
+  if S.shape == ():
+    return newX.reshape(-1)
+
   [_, V] = np.linalg.eigh(S)
 
   PW = np.matmul(V[:, :int(n / 2)], V[:, :int(n / 2)].T)
@@ -256,6 +264,7 @@ def agnosticMeanGeneral(X, eta):
   est2 = agnosticMeanGeneral(np.matmul(X, QV), eta)
   est2 = np.matmul(est2, QV.T)
   est = est1 + est2
+  
   return est
 
 
@@ -280,6 +289,10 @@ class HuberGradient(MatrixFactorization):
     data = self.train_v[self.V_start[item] : self.V_start[item + 1]]
     umat = self.U[data[:, 0].astype(int)]
     preds = np.matmul(umat, self.V[item])
+
+    if len(data) <= 1:
+      return np.multiply((data[:, 2] - preds).reshape((-1, 1)), umat).reshape(-1,) - (self.reg * self.V[item])
+
     robust_grad_mean = agnosticMeanGeneral(np.multiply((data[:, 2] - preds).reshape((-1, 1)), umat) - (self.reg * self.V[item]), self.corruption)
     return (robust_grad_mean / np.sqrt(self.num_factors)) 
 

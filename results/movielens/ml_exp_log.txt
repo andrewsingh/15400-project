@@ -1,0 +1,4 @@
+Namespace(b=50.0, c=50.0, eta=0.2, mclass='lad', r=30, reg=0.05, v=True) final RMSE: 1.008925248283215
+Namespace(b=50.0, c=50.0, eta=0.3, mclass='lad', r=30, reg=0.05, v=True) final RMSE: 1.1018696333134135
+Namespace(b=50.0, c=50.0, eta=0.3, mclass='lad', r=30, reg=0.15, v=True) final RMSE: 0.972390091081241
+Namespace(b=100.0, c=50.0, eta=0.4, mclass='lad', r=30, reg=0.15, v=True) final RMSE: 1.0949160229989876
