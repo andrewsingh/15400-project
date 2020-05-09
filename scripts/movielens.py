@@ -36,30 +36,42 @@ def average_attack(ModelClass, reg, verbose, target_item):
   # target_items = random.sample(target_items_list, k=10)
 
   # target_items = [117, 1792, 2837, 3157, 2206, 3038, 1597, 3466, 1988, 3014]
-  target_items = [371, 1100, 2531, 40, 2818, 1314, 1747, 3081, 2984, 871]
+  # target_items = [371, 1100, 2531, 40, 2818, 1314, 1747, 3081, 2984, 871]
+  target_items = [371, 1100, 2531, 40, 2818]
 
-  print("Target items: {}\n".format(target_items))
+  # print("Target items: {}\n".format(target_items))
 
-  filler_prop = 0.05
-  filler_size = int(filler_prop * num_items)
-  filler_items_list = [x for x in list(range(num_items)) if x in item_freqs_train and x not in target_items]
+  # filler_prop = 0.05
+  # filler_size = int(filler_prop * num_items)
+  # filler_items_list = [x for x in list(range(num_items)) if x in item_freqs_train and x not in target_items]
 
   model_clean = ModelClass(train, test, num_items, num_factors=num_factors, reg=reg)
   model_clean.alt_min()
   overall_rmse = model_clean.evaluate()
+  clean_results = []
   results = []
   
-  for target_item in [target_item]:
+  for target_item in target_items:
+    target_rmse = model_clean.evaluate_item(target_item)
+    original_entry = [target_item, 0.0, 0.0, round(target_rmse, 4), round(overall_rmse, 4)]
+    clean_results.append(original_entry)
+    print(original_entry)
+
+  with open("../results/drop_attack/clean{}.pkl".format(alt_min.ModelClass.__name__), "wb+") as f:
+      pickle.dump(clean_results, f)
+    
+  
+  for target_item in target_items:
     if verbose:
       print("Target item {} freq: {}".format(target_item, len(train.loc[train["item"] == target_item])))
 
     #np.random.seed(0)
-    filler_items = random.sample(filler_items_list, k=filler_size)
-    target_rmse = model_clean.evaluate_item(target_item)
+    # filler_items = random.sample(filler_items_list, k=filler_size)
+    # target_rmse = model_clean.evaluate_item(target_item)
 
-    original_entry = [target_item, 0.0, 0.0, round(target_rmse, 4), round(overall_rmse, 4)]
-    results.append(original_entry)
-    print(original_entry)
+    # original_entry = [target_item, 0.0, 0.0, round(target_rmse, 4), round(overall_rmse, 4)]
+    # results.append(original_entry)
+    # print(original_entry)
     
     # for eta in [0.01, 0.03, 0.05, 0.10, 0.25]:
     for eta in [0.1, 0.2]:
