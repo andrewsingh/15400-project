@@ -14,7 +14,7 @@ trial_num = 1
 
 
 
-def average_attack(ModelClass, reg, verbose, target_item):
+def average_attack(ModelClass, reg, verbose):
   train = pd.read_pickle("../data/ml-1m-split/train.pkl").drop(["item_id", "timestamp"], axis=1)
   test = pd.read_pickle("../data/ml-1m-split/test.pkl").drop(["item_id", "timestamp"], axis=1)
   full = pd.read_pickle("../data/ml-1m-split/full.pkl").drop(["item_id", "timestamp"], axis=1)
@@ -196,7 +196,7 @@ if __name__ == '__main__':
   parser.add_argument("-reg", dest="reg", type=float)
   parser.add_argument("-v", action="store_true")
   parser.add_argument("-aa", action="store_true")
-  parser.add_argument("-t", dest="target_item")
+  # parser.add_argument("-t", dest="target_item")
   
   args = parser.parse_args() 
 
@@ -213,7 +213,7 @@ if __name__ == '__main__':
     ModelClass = alt_min.LeastSquares
 
   if args.aa:
-    average_attack(ModelClass, args.reg, args.v, args.t)
+    average_attack(ModelClass, args.reg, args.v)
   else:
     rmse = run_experiment(ModelClass, args.reg, args.r, args.eta, args.c, args.b, args.v)
     print("Experiment complete\nargs: {}".format(args))
