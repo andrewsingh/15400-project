@@ -73,7 +73,7 @@ class MatrixFactorization:
     pass
 
 
-  def alt_min(self, verbose):
+  def alt_min(self, verbose=True):
     np.random.seed(0)
     self.U = np.random.uniform(-1, 1, (self.num_train_users, self.num_factors))
     self.V = np.random.uniform(-1, 1, (self.num_items, self.num_factors))
@@ -84,9 +84,10 @@ class MatrixFactorization:
     prev_rmse = 1000
     min_rmse = rmse
     rounds = 0
-    num_iters = 1
-    threshold = -0.0001
-    rounds_thresh = 10
+    num_iters = 20
+    # threshold = -0.0001
+    threshold = -0.01
+    rounds_thresh = 5
     prev_diff = rmse - prev_rmse
 
     while rmse - prev_rmse < threshold or rounds < rounds_thresh:
@@ -105,7 +106,7 @@ class MatrixFactorization:
           step_norm = np.linalg.norm(step)
           if step_norm > max_u_grad:
             max_u_grad = step_norm
-        print("User iter {}".format(i))
+        #print("User iter {}".format(i))
         
 
       # Optimize V
@@ -116,7 +117,7 @@ class MatrixFactorization:
           step_norm = np.linalg.norm(step)
           if step_norm > max_v_grad:
             max_v_grad = step_norm
-        print("Item iter {}".format(i))
+        #print("Item iter {}".format(i))
           
       rmse = self.evaluate()
       if rmse < min_rmse:
@@ -272,7 +273,7 @@ def agnosticMeanGeneral(X, eta):
 
 
 class HuberGradient(MatrixFactorization):
-  def __init__(self, train, test, num_items, num_factors, reg, corruption, lrate=0.1):
+  def __init__(self, train, test, num_items, num_factors, reg, corruption=0, lrate=0.1):
     MatrixFactorization.__init__(self, train, test, num_items, num_factors, lrate, reg)
     self.corruption = corruption
     
