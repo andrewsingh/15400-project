@@ -1,2 +1,2 @@
-# 15400-project
-Research project for 15-400 course.
+# 15-400 Project
+Robust Matrix Completion via Robust Gradient Descent
