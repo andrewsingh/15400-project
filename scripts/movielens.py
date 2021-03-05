@@ -28,6 +28,9 @@ def average_attack(ModelClass, reg, verbose):
   item_rating_avgs = full.groupby("item").mean()["rating"].values
   item_rating_stds = full.groupby("item").std()["rating"].values
 
+  print("train prop: {}".format(len(train) / len(full)))
+  print("test prop: {}".format(len(test) / len(full)))
+
   # target_items_list = []
   # for i in range(num_items):
   #   if i in item_freqs_train and item_freqs[i] <= (0.05 * num_users) and item_freqs[i] >= (0.03 * num_users) and item_rating_avgs[i] >= 3:
@@ -37,8 +40,8 @@ def average_attack(ModelClass, reg, verbose):
 
   # target_items = [117, 1792, 2837, 3157, 2206, 3038, 1597, 3466, 1988, 3014]
   # target_items = [371, 1100, 2531, 40, 2818, 1314, 1747, 3081, 2984, 871]
-  #target_items = [371, 1100, 2531, 40, 2818]
-  target_items = [40, 2818]
+  target_items = [371, 1100, 2531, 40, 2818]
+  # target_items = [2818]
   # print("Target items: {}\n".format(target_items))
 
   # filler_prop = 0.05
@@ -74,7 +77,8 @@ def average_attack(ModelClass, reg, verbose):
     # print(original_entry)
     
     # for eta in [0.01, 0.03, 0.05, 0.10, 0.25]:
-    for eta in [0.1, 0.2]:
+    for eta in [0]:
+      print("eta = {}".format(eta))
       # profile_size = int(profile_prop * num_users)
       profile_size = int(item_freqs_train[target_item] * eta)
       attack_data = []

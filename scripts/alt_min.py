@@ -73,13 +73,15 @@ class MatrixFactorization:
     pass
 
 
-  def alt_min(self, verbose=True):
+  def alt_min(self, verbose=True, only_init=False):
     np.random.seed(0)
     self.U = np.random.uniform(-1, 1, (self.num_train_users, self.num_factors))
     self.V = np.random.uniform(-1, 1, (self.num_items, self.num_factors))
 
     rmse = self.evaluate()
     print("Initial RMSE: {}".format(rmse))
+    if only_init:
+      return rmse
     
     prev_rmse = 1000
     min_rmse = rmse
@@ -120,6 +122,8 @@ class MatrixFactorization:
         #print("Item iter {}".format(i))
           
       rmse = self.evaluate()
+      if np.isnan(rmse):
+        break
       if rmse < min_rmse:
         min_rmse = rmse
 
@@ -282,7 +286,8 @@ class HuberGradient(MatrixFactorization):
     data = self.train_u[self.U_start[user] : self.U_start[user + 1]]
     vmat = self.V[data[:, 1].astype(int)]
     preds = np.matmul(vmat, self.U[user])
-    robust_grad_mean = agnosticMeanGeneral(np.multiply((data[:, 2] - preds).reshape((-1, 1)), vmat) - (self.reg * self.U[user]), self.corruption)
+    grads = np.multiply((data[:, 2] - preds).reshape((-1, 1)), vmat) - (self.reg * self.U[user])
+    robust_grad_mean = agnosticMeanGeneral(grads, self.corruption)
     return (robust_grad_mean / np.sqrt(self.num_factors)) 
 
     
@@ -290,11 +295,11 @@ class HuberGradient(MatrixFactorization):
     data = self.train_v[self.V_start[item] : self.V_start[item + 1]]
     umat = self.U[data[:, 0].astype(int)]
     preds = np.matmul(umat, self.V[item])
-
     if len(data) <= 1:
-      return np.multiply((data[:, 2] - preds).reshape((-1, 1)), umat).reshape(-1,) - (self.reg * self.V[item])
-
-    robust_grad_mean = agnosticMeanGeneral(np.multiply((data[:, 2] - preds).reshape((-1, 1)), umat) - (self.reg * self.V[item]), self.corruption)
+      grads = np.multiply((data[:, 2] - preds).reshape((-1, 1)), umat).reshape(-1,) - (self.reg * self.V[item])
+      return grads
+    grads = np.multiply((data[:, 2] - preds).reshape((-1, 1)), umat) - (self.reg * self.V[item])
+    robust_grad_mean = agnosticMeanGeneral(grads, self.corruption)
     return (robust_grad_mean / np.sqrt(self.num_factors)) 
 
 

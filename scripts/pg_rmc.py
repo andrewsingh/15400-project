@@ -75,14 +75,14 @@ def ncrmc(M_obs, true_r, p, mask):
     S_t = []
 
     while frob_err[t] >= EPS and t < MAX_ITER:
-        print("iteration {}\nfrob_err: {}\n".format(t, frob_err[t]))
+        print("iteration {}\nr_hat: {}\nfrob_err: {}\n".format(t, r_hat, frob_err[t]))
         t = t + 1
 
         spL_t = (U_t @ SV_t) * mask
         D_t = B - spL_t
         idx_s = np.absolute(D_t) >= thresh
         S_t = np.copy(D_t)
-        S_t[~idx_s] = 0
+        # S_t[~idx_s] = 0
 
         (U_t, Sig_t, V_t) = np.linalg.svd(U_t @ Sig_t @ V_t.T + (1 / p) * (D_t - S_t))
         Sig_t = np.diag(Sig_t)
@@ -101,6 +101,7 @@ def ncrmc(M_obs, true_r, p, mask):
         assert(np.array_equal(B, M_obs))
         frob_err.append(np.linalg.norm(B - (spL_t + S_t), "fro"))
 
+        print("error ratio: {}".format((frob_err[t - 1] - frob_err[t]) / frob_err[t - 1]))
         if ((frob_err[t - 1] - frob_err[t]) / frob_err[t - 1] <= TOL) and r_hat < true_r:
             r_hat = r_hat + 1
         elif ((frob_err[t - 1] - frob_err[t]) / frob_err[t - 1] <= TOL) and r_hat == true_r:
@@ -133,12 +134,13 @@ if __name__ == '__main__':
 
     # Tried normalizing the matrix first, as this was shown in one
     # of the wrapper functions in the matlab code, but didn't help
-    avg = np.mean(M_obs[M_obs > 0])
-    M2 = (M_obs - avg) * prob_mask
-    (U_t, SV_t) = ncrmc(M2, r, p, prob_mask)
-    L_t = U_t @ SV_t + avg
-    # (U_t, SV_t) = ncrmc(M_obs, r, p, prob_mask)
-    # L_t = U_t @ SV_t
+    # avg = np.mean(M_obs[M_obs > 0])
+    # M2 = (M_obs - avg) * prob_mask
+    # (U_t, SV_t) = ncrmc(M2, r, p, prob_mask)
+    # L_t = U_t @ SV_t + avg
+
+    (U_t, SV_t) = ncrmc(M_obs, r, p, prob_mask)
+    L_t = U_t @ SV_t
     final_frob_err = np.linalg.norm(L_t - L, "fro")
     final_rmse = np.sqrt((final_frob_err ** 2) / (n ** 2))
     print("final frob_err: {}\nfinal RMSE: {}".format(final_frob_err, final_rmse))
